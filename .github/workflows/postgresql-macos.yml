@@ -169,7 +169,17 @@ jobs:
           export PGPORT=55432
           export PGUSER=postgres
 
-          initdb -D "${PGDATA}" -U postgres --no-sync
+          # --no-locale gives the C collation the expected outputs were
+          # generated against, so that the test results depend on PostgreSQL
+          # rather than on whichever locale the runner image happens to be set
+          # to. UTF-8 is asked for explicitly because --no-locale would
+          # otherwise leave the encoding at SQL_ASCII.
+          initdb -D "${PGDATA}" -U postgres --no-sync --no-locale \
+              --encoding=UTF8
+
+          # A non-default port, and a socket directory under RUNNER_TEMP,
+          # because the regression suite should not care what else the image
+          # ships with.
           pg_ctl -D "${PGDATA}" -l "${RUNNER_TEMP}/postmaster.log" \
               -o "-p ${PGPORT} -k ${PGHOST}" -w start
 
