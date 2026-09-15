@@ -110,15 +110,17 @@ jobs:
           name: openssl-${{ env.OPENSSL_VERSION }}-macos-${{ matrix.arch }}
           path: ${{ runner.temp }}/openssl-macos-${{ matrix.arch }}-latest.tar.gz
 
-      # Publishing is done with the gh CLI and a retry loop rather than with
-      # softprops/action-gh-release, because GitHub applies a secondary rate
-      # limit to release and tag creation that several matrix jobs finishing at
-      # once will trip. It surfaces as a bare 403 on the create call, with
-      # nothing in the response identifying it as a rate limit, and the action
-      # reads that as a permissions failure and refuses to retry, which turns a
-      # few seconds of back-off into a failed build. Deleting and recreating,
-      # rather than editing in place, is what keeps the tag pointing at the
-      # commit that produced the assets.
+      # Refreshing a rolling release means replacing its asset, not tearing the
+      # release down and building a new one. Creating a release is the
+      # expensive operation, and the one that has repeatedly come back as a
+      # bare 403 "Resource not accessible by integration" under load, for
+      # twenty minutes at a stretch, on a token that the same job had just used
+      # to delete a release successfully and that logged Contents: write.
+      # Whatever GitHub-side throttle that is, the way not to meet it is not to
+      # create a release every night: the tag is created once, and from then on
+      # each build moves it to the new commit and clobbers the asset in place.
+      # That also keeps the release's identity and URL intact between builds,
+      # which deleting and recreating did not.
       - name: Publish Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -128,42 +130,46 @@ jobs:
         run: |
           set -euo pipefail
 
-          # True only when the release exists, is not a draft, and therefore
-          # has a real tag behind it that consumers can download by.
+          # True only when the release exists and is not a draft, since a draft
+          # has no tag behind it and so cannot be downloaded by tag, however
+          # healthy it looks in the web interface.
           is_published() {
               [ "$(gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" \
                       --json isDraft --jq .isDraft 2>/dev/null)" = "false" ]
           }
 
-          # The back-off is deliberately generous. A 403 here has been observed
-          # to persist for eight minutes at a stretch, so a handful of
-          # half-minute retries is not enough to ride it out, and throwing away
-          # a thirty-minute build over it would be absurd.
-          for attempt in 1 2 3 4 5 6 7 8; do
-              gh release delete "${TAG}" --repo "${GITHUB_REPOSITORY}" \
-                  --cleanup-tag --yes || true
-
-              if gh release create "${TAG}" "${ASSET}" \
+          publish() {
+              if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" \
+                      >/dev/null 2>&1; then
+                  # Move the rolling tag onto the commit that produced these
+                  # assets. Allowed to fail: a release left as a draft by an
+                  # earlier attempt has no tag yet, and the edit below makes
+                  # one.
+                  gh api -X PATCH \
+                      "repos/${GITHUB_REPOSITORY}/git/refs/tags/${TAG}" \
+                      -f sha="${GITHUB_SHA}" -F force=true >/dev/null 2>&1 \
+                      || true
+                  gh release edit "${TAG}" --repo "${GITHUB_REPOSITORY}" \
+                      --title "${TITLE}" --prerelease --draft=false \
+                      >/dev/null &&
+                  gh release upload "${TAG}" "${ASSET}" \
+                      --repo "${GITHUB_REPOSITORY}" --clobber
+              else
+                  gh release create "${TAG}" "${ASSET}" \
                       --repo "${GITHUB_REPOSITORY}" \
                       --target "${GITHUB_SHA}" \
                       --title "${TITLE}" \
-                      --prerelease; then
-                  if is_published; then
-                      echo "Published ${TAG}"
-                      exit 0
-                  fi
-                  # gh creates the release as a draft, uploads the assets and
-                  # only then flips it to published. Under contention it has
-                  # been seen to exit zero having left the release a draft,
-                  # which looks like a working release in the web interface but
-                  # has no tag, so nothing can download it. Ask again, plainly.
-                  echo "${TAG} was left as a draft; publishing it explicitly"
-                  gh release edit "${TAG}" --repo "${GITHUB_REPOSITORY}" \
-                      --draft=false || true
-                  if is_published; then
-                      echo "Published ${TAG}"
-                      exit 0
-                  fi
+                      --prerelease
+              fi
+          }
+
+          # The back-off is deliberately generous, because throwing away a
+          # thirty-minute build that has already passed its tests, over an API
+          # call that may well work a few minutes later, would be absurd.
+          for attempt in 1 2 3 4 5 6 7 8; do
+              if publish && is_published; then
+                  echo "Published ${TAG}"
+                  exit 0
               fi
 
               delay=$((attempt * 60))
