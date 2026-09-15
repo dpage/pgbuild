@@ -254,7 +254,11 @@ jobs:
                       --json isDraft --jq .isDraft 2>/dev/null)" = "false" ]
           }
 
-          for attempt in 1 2 3 4 5; do
+          # The back-off is deliberately generous. A 403 here has been observed
+          # to persist for eight minutes at a stretch, so a handful of
+          # half-minute retries is not enough to ride it out, and throwing away
+          # a thirty-minute build over it would be absurd.
+          for attempt in 1 2 3 4 5 6 7 8; do
               gh release delete "${TAG}" --repo "${GITHUB_REPOSITORY}" \
                   --cleanup-tag --yes || true
 
@@ -281,9 +285,14 @@ jobs:
                   fi
               fi
 
-              echo "Publishing ${TAG} failed on attempt ${attempt}; backing off"
-              sleep $((attempt * 30))
+              delay=$((attempt * 60))
+              if [ "${delay}" -gt 300 ]; then
+                  delay=300
+              fi
+              echo "Publishing ${TAG} failed on attempt ${attempt};" \
+                   "retrying in ${delay}s"
+              sleep "${delay}"
           done
 
-          echo "Giving up on ${TAG} after 5 attempts" >&2
+          echo "Giving up on ${TAG} after 8 attempts" >&2
           exit 1
