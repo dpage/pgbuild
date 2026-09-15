@@ -1,4 +1,4 @@
-name: Package Ninja
+name: Package Ninja (Windows)
 
 on:
   workflow_dispatch:

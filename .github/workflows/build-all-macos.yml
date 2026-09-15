@@ -1,0 +1,32 @@
+name: Build All (macOS)
+
+# Single-run DAG that builds the whole macOS tree in dependency order, in the
+# same style as build-all-windows.yml. Leaf workflows remain callable on
+# demand via workflow_dispatch / workflow_call.
+#
+# GitHub Actions limits a workflow to 20 unique reusable workflows in its full
+# call tree. This orchestrator uses 6 of them: the five macOS leaves plus
+# manifest.yml, which every leaf calls and which counts only once. The Windows
+# orchestrator is already at 20, which is precisely why the two platforms have
+# an orchestrator each rather than sharing one.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "00 02 * * *"
+
+jobs:
+  # Tier 0 - no artifact dependencies.
+  openssl:
+    uses: ./.github/workflows/openssl-macos.yml
+  krb5:
+    uses: ./.github/workflows/krb5-macos.yml
+  zstd:
+    uses: ./.github/workflows/zstd-macos.yml
+  lz4:
+    uses: ./.github/workflows/lz4-macos.yml
+
+  # Tier 1
+  postgresql:
+    needs: [openssl, krb5, zstd, lz4]
+    uses: ./.github/workflows/postgresql-macos.yml

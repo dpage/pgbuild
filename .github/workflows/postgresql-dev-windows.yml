@@ -1,4 +1,4 @@
-name: Build PostgreSQL (Dev)
+name: Build PostgreSQL (Dev) (Windows)
 
 on:
   workflow_dispatch:
@@ -38,7 +38,7 @@ jobs:
           path: /builddeps
 
       # Standalone dispatch has no same-run artifact; pull the dependencies
-      # from the dependencies-latest release published by bundle-deps. The
+      # from the dependencies-win64-latest release published by bundle-deps. The
       # release archive has a top-level builddeps/ directory, so extracting to
       # the filesystem root reproduces the \builddeps layout. Skipped on
       # build-all runs, where the step above already succeeded.
@@ -47,12 +47,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release download dependencies-latest `
+          gh release download dependencies-win64-latest `
               --repo ${{ github.repository }} `
-              --pattern postgresql-dependencies-latest.zip `
+              --pattern postgresql-dependencies-win64-latest.zip `
               --dir $env:RUNNER_TEMP
           Expand-Archive `
-              -Path $env:RUNNER_TEMP\postgresql-dependencies-latest.zip `
+              -Path $env:RUNNER_TEMP\postgresql-dependencies-win64-latest.zip `
               -DestinationPath \ -Force
 
       # Copy libraries requires at runtime to installation directory.
@@ -261,21 +261,21 @@ jobs:
       - name: Package Release Assets
         shell: pwsh
         run: |
-          Compress-Archive /postgresql /postgresql-${{ env.POSTGRESQL-DEV_VERSION }}-latest.zip
+          Compress-Archive /postgresql /postgresql-${{ env.POSTGRESQL-DEV_VERSION }}-win64-latest.zip
           
       - name: Delete Existing Release
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release delete "postgresql-${{ env.POSTGRESQL-DEV_VERSION }}-latest" --repo "${{ github.repository }}" --cleanup-tag --yes || true
+          gh release delete "postgresql-${{ env.POSTGRESQL-DEV_VERSION }}-win64-latest" --repo "${{ github.repository }}" --cleanup-tag --yes || true
 
       - name: Create Release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: "postgresql-${{ env.POSTGRESQL-DEV_VERSION }}-latest"
+          tag_name: "postgresql-${{ env.POSTGRESQL-DEV_VERSION }}-win64-latest"
           target_commitish: ${{ github.sha }}
-          name: "PostgreSQL ${{ env.POSTGRESQL-DEV_VERSION }}"
+          name: "PostgreSQL ${{ env.POSTGRESQL-DEV_VERSION }} (Windows x64)"
           prerelease: true
           files: |
-            /postgresql-${{ env.POSTGRESQL-DEV_VERSION }}-latest.zip
+            /postgresql-${{ env.POSTGRESQL-DEV_VERSION }}-win64-latest.zip

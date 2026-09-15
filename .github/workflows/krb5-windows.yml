@@ -1,4 +1,4 @@
-name: Build KRB5
+name: Build KRB5 (Windows)
 
 on:
   workflow_dispatch:
@@ -98,21 +98,21 @@ jobs:
       - name: Package Release Assets
         shell: pwsh
         run: |
-          Compress-Archive /krb5 /krb5-latest.zip
+          Compress-Archive /krb5 /krb5-win64-latest.zip
           
       - name: Delete Existing Release
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release delete "krb5-latest" --repo "${{ github.repository }}" --cleanup-tag --yes || true
+          gh release delete "krb5-win64-latest" --repo "${{ github.repository }}" --cleanup-tag --yes || true
 
       - name: Create Release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: "krb5-latest"
+          tag_name: "krb5-win64-latest"
           target_commitish: ${{ github.sha }}
-          name: "MIT Kerberos"
+          name: "MIT Kerberos (Windows x64)"
           prerelease: true
           files: |
-            /krb5-latest.zip
+            /krb5-win64-latest.zip

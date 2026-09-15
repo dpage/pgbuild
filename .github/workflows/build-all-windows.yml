@@ -1,0 +1,91 @@
+name: Build All (Windows)
+
+# Single-run DAG that builds the whole Windows tree in dependency order.
+# Leaf workflows remain callable on demand via workflow_dispatch /
+# workflow_call, but their crons have been removed in favour of this one.
+#
+# IMPORTANT: GitHub Actions limits a workflow to 20 unique reusable workflows
+# in its full call tree, and this orchestrator is AT that limit: 19 Windows
+# leaves plus manifest.yml, which every leaf calls, makes exactly 20. There is
+# therefore no room to add another package here, and no room to wrap this in a
+# further orchestrator that calls it with `uses:`, which is why macOS gets its
+# own build-all-macos.yml rather than being folded in. Adding a Windows package
+# will require splitting this into staged orchestrators dispatched through the
+# API rather than called as reusable workflows.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "00 00 * * *"
+
+jobs:
+  # Tier 0 — no artifact dependencies.
+  meson:
+    uses: ./.github/workflows/meson-windows.yml
+  ninja:
+    uses: ./.github/workflows/ninja-windows.yml
+  openssl:
+    uses: ./.github/workflows/openssl-windows.yml
+  zlib:
+    uses: ./.github/workflows/zlib-windows.yml
+  zstd:
+    uses: ./.github/workflows/zstd-windows.yml
+  lz4:
+    uses: ./.github/workflows/lz4-windows.yml
+  libiconv:
+    uses: ./.github/workflows/libiconv-windows.yml
+  icu:
+    uses: ./.github/workflows/icu-windows.yml
+  krb5:
+    uses: ./.github/workflows/krb5-windows.yml
+  ossp-uuid:
+    uses: ./.github/workflows/ossp-uuid-windows.yml
+  diffutils:
+    uses: ./.github/workflows/diffutils-windows.yml
+  winflexbison:
+    uses: ./.github/workflows/winflexbison-windows.yml
+
+  # Tier 1
+  pkgconf:
+    needs: [meson, ninja]
+    uses: ./.github/workflows/pkgconf-windows.yml
+  libxml2:
+    needs: [zlib]
+    uses: ./.github/workflows/libxml2-windows.yml
+  gettext:
+    needs: [libiconv]
+    uses: ./.github/workflows/gettext-windows.yml
+
+  # Tier 2
+  libxslt:
+    needs: [zlib, libxml2]
+    uses: ./.github/workflows/libxslt-windows.yml
+
+  # Tier 3
+  bundle-deps:
+    needs:
+      - meson
+      - ninja
+      - openssl
+      - zlib
+      - zstd
+      - lz4
+      - libiconv
+      - icu
+      - krb5
+      - ossp-uuid
+      - diffutils
+      - winflexbison
+      - pkgconf
+      - libxml2
+      - gettext
+      - libxslt
+    uses: ./.github/workflows/bundle-deps-windows.yml
+
+  # Tier 4
+  postgresql:
+    needs: [bundle-deps]
+    uses: ./.github/workflows/postgresql-windows.yml
+  postgresql-dev:
+    needs: [bundle-deps]
+    uses: ./.github/workflows/postgresql-dev-windows.yml

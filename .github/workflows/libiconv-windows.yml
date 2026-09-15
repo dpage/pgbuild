@@ -1,4 +1,4 @@
-name: Build libiconv
+name: Build libiconv (Windows)
 
 on:
   workflow_dispatch:
@@ -90,21 +90,21 @@ jobs:
         run: |
           cd libiconv-${{ env.LIBICONV_VERSION }}
           mv winpgbuild libiconv
-          zip -r libiconv-latest.zip libiconv
+          zip -r libiconv-win64-latest.zip libiconv
           
       - name: Delete Existing Release
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release delete "libiconv-latest" --repo "${{ github.repository }}" --cleanup-tag --yes || true
+          gh release delete "libiconv-win64-latest" --repo "${{ github.repository }}" --cleanup-tag --yes || true
 
       - name: Create Release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: "libiconv-latest"
+          tag_name: "libiconv-win64-latest"
           target_commitish: ${{ github.sha }}
-          name: "libiconv"
+          name: "libiconv (Windows x64)"
           prerelease: true
           files: |
-            libiconv-${{ env.LIBICONV_VERSION }}/libiconv-latest.zip
+            libiconv-${{ env.LIBICONV_VERSION }}/libiconv-win64-latest.zip

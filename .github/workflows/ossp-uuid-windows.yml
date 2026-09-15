@@ -1,4 +1,4 @@
-name: Build ossp-uuid
+name: Build ossp-uuid (Windows)
 
 on:
   workflow_dispatch:
@@ -110,21 +110,21 @@ jobs:
         run: |
           cd ossp-uuid-upstream-${{ env.OSSP-UUID_VERSION }}
           mv winpgbuild ossp-uuid
-          zip -r ossp-uuid-latest.zip ossp-uuid
+          zip -r ossp-uuid-win64-latest.zip ossp-uuid
           
       - name: Delete Existing Release
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release delete "ossp-uuid-latest" --repo "${{ github.repository }}" --cleanup-tag --yes || true
+          gh release delete "ossp-uuid-win64-latest" --repo "${{ github.repository }}" --cleanup-tag --yes || true
 
       - name: Create Release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: "ossp-uuid-latest"
+          tag_name: "ossp-uuid-win64-latest"
           target_commitish: ${{ github.sha }}
-          name: "ossp-uuid"
+          name: "ossp-uuid (Windows x64)"
           prerelease: true
           files: |
-            ossp-uuid-upstream-${{ env.OSSP-UUID_VERSION }}/ossp-uuid-latest.zip
+            ossp-uuid-upstream-${{ env.OSSP-UUID_VERSION }}/ossp-uuid-win64-latest.zip

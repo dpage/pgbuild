@@ -1,4 +1,4 @@
-name: Package pkgconf
+name: Package pkgconf (Windows)
 
 on:
   workflow_dispatch:

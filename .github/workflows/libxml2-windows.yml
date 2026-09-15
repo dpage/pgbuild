@@ -1,4 +1,4 @@
-name: Build libxml2
+name: Build libxml2 (Windows)
 
 on:
   workflow_dispatch:
@@ -79,21 +79,21 @@ jobs:
       - name: Package Release Assets
         shell: pwsh
         run: |
-          Compress-Archive /libxml2 /libxml2-latest.zip
+          Compress-Archive /libxml2 /libxml2-win64-latest.zip
           
       - name: Delete Existing Release
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release delete "libxml2-latest" --repo "${{ github.repository }}" --cleanup-tag --yes || true
+          gh release delete "libxml2-win64-latest" --repo "${{ github.repository }}" --cleanup-tag --yes || true
 
       - name: Create Release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: "libxml2-latest"
+          tag_name: "libxml2-win64-latest"
           target_commitish: ${{ github.sha }}
-          name: "libxml2"
+          name: "libxml2 (Windows x64)"
           prerelease: true
           files: |
-            /libxml2-latest.zip
+            /libxml2-win64-latest.zip

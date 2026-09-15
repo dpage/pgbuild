@@ -1,4 +1,4 @@
-name: Package diffutils
+name: Package diffutils (Windows)
 
 on:
   workflow_dispatch:

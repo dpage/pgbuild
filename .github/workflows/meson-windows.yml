@@ -1,4 +1,4 @@
-name: Package Meson
+name: Package Meson (Windows)
 
 on:
   workflow_dispatch:

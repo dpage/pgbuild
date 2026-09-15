@@ -1,87 +1,55 @@
 name: Build All
 
-# Single-run DAG that builds everything in dependency order. The only
-# scheduled workflow in the repo - leaf workflows are still callable on
-# demand via workflow_dispatch / workflow_call, but their crons have been
-# removed in favour of this one.
+# A convenience dispatcher for "rebuild everything, now". Each platform
+# already has its own nightly orchestrator, so this exists purely so that a
+# human does not have to start two runs by hand.
 #
-# IMPORTANT: GitHub Actions limits a workflow to 20 unique reusable workflows
-# in its full call tree. We are AT that limit (19 leaves + manifest.yml).
-# Adding a new package will require splitting into staged orchestrators.
+# Note that it deliberately does NOT call the two orchestrators with `uses:`.
+# GitHub Actions counts unique reusable workflows across a whole call tree and
+# caps it at 20, and build-all-windows.yml alone already reaches that cap with
+# its 19 leaves plus manifest.yml; calling both orchestrators from here would
+# come to 27 and the run would be rejected outright. Dispatching them through
+# the API starts two independent runs instead, each with its own call tree, at
+# the cost of this job finishing immediately rather than waiting for them.
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "00 00 * * *"
+    inputs:
+      windows:
+        description: Build the Windows tree
+        type: boolean
+        default: true
+      macos:
+        description: Build the macOS tree
+        type: boolean
+        default: true
+
+permissions:
+  actions: write
+  contents: read
 
 jobs:
-  # Tier 0 — no artifact dependencies.
-  meson:
-    uses: ./.github/workflows/meson.yml
-  ninja:
-    uses: ./.github/workflows/ninja.yml
-  openssl:
-    uses: ./.github/workflows/openssl.yml
-  zlib:
-    uses: ./.github/workflows/zlib.yml
-  zstd:
-    uses: ./.github/workflows/zstd.yml
-  lz4:
-    uses: ./.github/workflows/lz4.yml
-  libiconv:
-    uses: ./.github/workflows/libiconv.yml
-  icu:
-    uses: ./.github/workflows/icu.yml
-  krb5:
-    uses: ./.github/workflows/krb5.yml
-  ossp-uuid:
-    uses: ./.github/workflows/ossp-uuid.yml
-  diffutils:
-    uses: ./.github/workflows/diffutils.yml
-  winflexbison:
-    uses: ./.github/workflows/winflexbison.yml
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch the platform orchestrators
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REF: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
 
-  # Tier 1
-  pkgconf:
-    needs: [meson, ninja]
-    uses: ./.github/workflows/pkgconf.yml
-  libxml2:
-    needs: [zlib]
-    uses: ./.github/workflows/libxml2.yml
-  gettext:
-    needs: [libiconv]
-    uses: ./.github/workflows/gettext.yml
+          if [ "${{ inputs.windows }}" = "true" ]; then
+              gh workflow run build-all-windows.yml \
+                  --repo "${{ github.repository }}" --ref "${REF}"
+              echo "Dispatched build-all-windows.yml on ${REF}"
+          fi
 
-  # Tier 2
-  libxslt:
-    needs: [zlib, libxml2]
-    uses: ./.github/workflows/libxslt.yml
+          if [ "${{ inputs.macos }}" = "true" ]; then
+              gh workflow run build-all-macos.yml \
+                  --repo "${{ github.repository }}" --ref "${REF}"
+              echo "Dispatched build-all-macos.yml on ${REF}"
+          fi
 
-  # Tier 3
-  bundle-deps:
-    needs:
-      - meson
-      - ninja
-      - openssl
-      - zlib
-      - zstd
-      - lz4
-      - libiconv
-      - icu
-      - krb5
-      - ossp-uuid
-      - diffutils
-      - winflexbison
-      - pkgconf
-      - libxml2
-      - gettext
-      - libxslt
-    uses: ./.github/workflows/bundle-deps.yml
-
-  # Tier 4
-  postgresql:
-    needs: [bundle-deps]
-    uses: ./.github/workflows/postgresql.yml
-  postgresql-dev:
-    needs: [bundle-deps]
-    uses: ./.github/workflows/postgresql-dev.yml
+          echo "Progress is visible under the Actions tab; this job does not" \
+               "wait for either run to finish." >> "${GITHUB_STEP_SUMMARY}"

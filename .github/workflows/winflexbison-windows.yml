@@ -1,4 +1,4 @@
-name: Package winflexbison
+name: Package winflexbison (Windows)
 
 on:
   workflow_dispatch:

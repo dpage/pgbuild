@@ -1,0 +1,88 @@
+name: Generate SPDX manifest (POSIX)
+description: >
+  Writes a SPDX 2.3 JSON document for a single package into
+  <install-dir>/MANIFESTS/<package>.spdx.json, sourced from manifest.json
+  at the current commit. This is the bash/python3 counterpart of the
+  generate-spdx action, used by the macOS builds; the two produce identical
+  documents and are kept separate only because the original is written in
+  PowerShell against Windows paths.
+
+inputs:
+  package:
+    description: Package name. Must match an entry in manifest.json.
+    required: true
+  install-dir:
+    description: >
+      Install directory the manifest is written under. The file lands at
+      <install-dir>/MANIFESTS/<package>.spdx.json.
+    required: true
+  version:
+    description: >
+      Override the version from manifest.json. Use for matrix builds
+      (e.g. postgresql) where manifest.json holds a list rather than a
+      single version. Leave empty for normal leaves.
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Generate SPDX manifest
+      shell: bash
+      env:
+        SPDX_PACKAGE: ${{ inputs.package }}
+        SPDX_INSTALL_DIR: ${{ inputs.install-dir }}
+        SPDX_VERSION: ${{ inputs.version }}
+        SPDX_MANIFEST_URL: https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/manifest.json
+        SPDX_REPOSITORY: ${{ github.repository }}
+        SPDX_RUN_ID: ${{ github.run_id }}
+      run: |
+        set -euo pipefail
+        python3 - <<'PY'
+        import datetime, json, os, urllib.request
+
+        name = os.environ["SPDX_PACKAGE"]
+        with urllib.request.urlopen(os.environ["SPDX_MANIFEST_URL"]) as fp:
+            manifest = json.load(fp)
+
+        pkg = next((p for p in manifest["packages"] if p["name"] == name), None)
+        if pkg is None:
+            raise SystemExit("Package '%s' not found in manifest.json" % name)
+
+        version = os.environ.get("SPDX_VERSION") or pkg["version"]
+        licence = pkg.get("spdx_license") or "NOASSERTION"
+        now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        repo = os.environ["SPDX_REPOSITORY"]
+        run_id = os.environ["SPDX_RUN_ID"]
+
+        doc = {
+            "spdxVersion": "SPDX-2.3",
+            "dataLicense": "CC0-1.0",
+            "SPDXID": "SPDXRef-DOCUMENT",
+            "name": "%s-%s" % (name, version),
+            "documentNamespace":
+                "https://github.com/%s/spdx/%s-%s-%s" % (repo, name, version, run_id),
+            "creationInfo": {
+                "created": now,
+                "creators": ["Tool: %s" % repo],
+            },
+            "packages": [
+                {
+                    "SPDXID": "SPDXRef-Package-%s" % name,
+                    "name": pkg["name"],
+                    "versionInfo": version,
+                    "downloadLocation": "NOASSERTION",
+                    "homepage": pkg["source"],
+                    "licenseDeclared": licence,
+                    "licenseConcluded": licence,
+                    "filesAnalyzed": False,
+                    "copyrightText": "NOASSERTION",
+                }
+            ],
+        }
+
+        out_dir = os.path.join(os.environ["SPDX_INSTALL_DIR"], "MANIFESTS")
+        os.makedirs(out_dir, exist_ok=True)
+        with open(os.path.join(out_dir, "%s.spdx.json" % name), "w") as fp:
+            json.dump(doc, fp, indent=2)
+        PY

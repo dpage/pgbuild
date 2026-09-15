@@ -1,0 +1,100 @@
+name: Build lz4 (macOS)
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  # pgAdmin supports macOS 14 (Sonoma) and above; see openssl-macos.yml for
+  # why this is pinned rather than inherited from the runner's SDK.
+  MACOSX_DEPLOYMENT_TARGET: '14.0'
+  PGBUILD_PREFIX: /opt/pgbuild
+
+jobs:
+  get-versions:
+    uses: ./.github/workflows/manifest.yml
+    with:
+      config-path: manifest.json
+
+  build-lz4:
+    needs: get-versions
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+
+    runs-on: ${{ matrix.runner }}
+
+    env:
+      LZ4_VERSION: ${{ needs.get-versions.outputs.LZ4_VERSION }}
+
+    steps:
+      - name: Prepare install prefix
+        run: |
+          sudo mkdir -p "${PGBUILD_PREFIX}"
+          sudo chown -R "$(id -u):$(id -g)" "${PGBUILD_PREFIX}"
+
+      - name: Download
+        run: |
+          curl -fL --retry 5 --retry-delay 5 --retry-all-errors --connect-timeout 30 \
+              "https://github.com/lz4/lz4/releases/download/v${LZ4_VERSION}/lz4-${LZ4_VERSION}.tar.gz" \
+              -o "lz4-${LZ4_VERSION}.tar.gz"
+          tar zxf "lz4-${LZ4_VERSION}.tar.gz"
+
+      - name: Build
+        run: |
+          cd "lz4-${LZ4_VERSION}"
+          make -j"$(sysctl -n hw.ncpu)"
+
+      - name: Install
+        run: |
+          cd "lz4-${LZ4_VERSION}"
+          make install prefix="${PGBUILD_PREFIX}/lz4"
+
+      - name: Checkout SPDX action
+        uses: actions/checkout@v6
+        with:
+          path: _src
+          sparse-checkout: |
+            .github/actions/generate-spdx-posix
+          sparse-checkout-cone-mode: false
+
+      - name: Generate SPDX manifest
+        uses: ./_src/.github/actions/generate-spdx-posix
+        with:
+          package: lz4
+          install-dir: ${{ env.PGBUILD_PREFIX }}/lz4
+
+      - name: Package
+        run: |
+          tar -czf "${RUNNER_TEMP}/lz4-macos-${{ matrix.arch }}-latest.tar.gz" \
+              -C "${PGBUILD_PREFIX}" lz4
+
+      - name: Upload Binaries
+        uses: actions/upload-artifact@v7
+        with:
+          if-no-files-found: error
+          name: lz4-${{ env.LZ4_VERSION }}-macos-${{ matrix.arch }}
+          path: ${{ runner.temp }}/lz4-macos-${{ matrix.arch }}-latest.tar.gz
+
+      - name: Delete Existing Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete "lz4-macos-${{ matrix.arch }}-latest" --repo "${{ github.repository }}" --cleanup-tag --yes || true
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: "lz4-macos-${{ matrix.arch }}-latest"
+          target_commitish: ${{ github.sha }}
+          name: "lz4 (macOS ${{ matrix.arch }})"
+          prerelease: true
+          files: |
+            ${{ runner.temp }}/lz4-macos-${{ matrix.arch }}-latest.tar.gz

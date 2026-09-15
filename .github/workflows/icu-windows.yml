@@ -1,4 +1,4 @@
-name: Build ICU
+name: Build ICU (Windows)
 
 on:
   workflow_dispatch:
@@ -107,21 +107,21 @@ jobs:
       - name: Package Release Assets
         shell: pwsh
         run: |
-          Compress-Archive /icu /icu-latest.zip
+          Compress-Archive /icu /icu-win64-latest.zip
           
       - name: Delete Existing Release
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release delete "icu-latest" --repo "${{ github.repository }}" --cleanup-tag --yes || true
+          gh release delete "icu-win64-latest" --repo "${{ github.repository }}" --cleanup-tag --yes || true
 
       - name: Create Release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: "icu-latest"
+          tag_name: "icu-win64-latest"
           target_commitish: ${{ github.sha }}
-          name: "icu"
+          name: "icu (Windows x64)"
           prerelease: true
           files: |
-            /icu-latest.zip
+            /icu-win64-latest.zip

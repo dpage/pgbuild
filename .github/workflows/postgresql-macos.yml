@@ -1,0 +1,246 @@
+name: Build PostgreSQL (macOS)
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  # pgAdmin supports macOS 14 (Sonoma) and above; see openssl-macos.yml for
+  # why this is pinned rather than inherited from the runner's SDK.
+  MACOSX_DEPLOYMENT_TARGET: '14.0'
+  PGBUILD_PREFIX: /opt/pgbuild
+
+jobs:
+  get-versions:
+    uses: ./.github/workflows/manifest.yml
+    with:
+      config-path: manifest.json
+
+  build-postgresql:
+    needs: get-versions
+
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ${{ fromJSON(needs.get-versions.outputs.POSTGRESQL_VERSION) }}
+        arch: [arm64, x86_64]
+
+    runs-on: ${{ matrix.arch == 'arm64' && 'macos-15' || 'macos-15-intel' }}
+
+    env:
+      OPENSSL_VERSION: ${{ needs.get-versions.outputs.OPENSSL_VERSION }}
+      KRB5_VERSION: ${{ needs.get-versions.outputs.KRB5_VERSION }}
+      ZSTD_VERSION: ${{ needs.get-versions.outputs.ZSTD_VERSION }}
+      LZ4_VERSION: ${{ needs.get-versions.outputs.LZ4_VERSION }}
+      PG_VERSION: ${{ matrix.version }}
+      ARCH: ${{ matrix.arch }}
+
+    steps:
+      - name: Prepare install prefix
+        run: |
+          sudo mkdir -p "${PGBUILD_PREFIX}"
+          sudo chown -R "$(id -u):$(id -g)" "${PGBUILD_PREFIX}"
+          mkdir -p "${RUNNER_TEMP}/deps"
+
+      # When run via build-all-macos (workflow_call), each dependency artifact
+      # is produced earlier in the same run, so these same-run lookups succeed.
+      # continue-on-error lets a standalone dispatch, where no such artifact
+      # exists, fall through to the release fallback below instead of failing
+      # the job.
+      - name: Download openssl
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          name: openssl-${{ env.OPENSSL_VERSION }}-macos-${{ matrix.arch }}
+          path: ${{ runner.temp }}/deps
+
+      - name: Download krb5
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          name: krb5-${{ env.KRB5_VERSION }}-macos-${{ matrix.arch }}
+          path: ${{ runner.temp }}/deps
+
+      - name: Download zstd
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          name: zstd-${{ env.ZSTD_VERSION }}-macos-${{ matrix.arch }}
+          path: ${{ runner.temp }}/deps
+
+      - name: Download lz4
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          name: lz4-${{ env.LZ4_VERSION }}-macos-${{ matrix.arch }}
+          path: ${{ runner.temp }}/deps
+
+      # Anything the steps above could not supply is pulled from the rolling
+      # per-package release instead, which is what a standalone dispatch of
+      # this workflow always ends up doing.
+      - name: Download dependencies (release fallback)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for pkg in openssl krb5 zstd lz4; do
+              tarball="${pkg}-macos-${ARCH}-latest.tar.gz"
+              if [ ! -f "${RUNNER_TEMP}/deps/${tarball}" ]; then
+                  echo "Fetching ${tarball} from the ${pkg}-macos-${ARCH}-latest release"
+                  gh release download "${pkg}-macos-${ARCH}-latest" \
+                      --repo "${{ github.repository }}" \
+                      --pattern "${tarball}" \
+                      --dir "${RUNNER_TEMP}/deps"
+              fi
+          done
+
+      - name: Install dependencies
+        run: |
+          for pkg in openssl krb5 zstd lz4; do
+              tar -xzf "${RUNNER_TEMP}/deps/${pkg}-macos-${ARCH}-latest.tar.gz" \
+                  -C "${PGBUILD_PREFIX}"
+          done
+
+      - name: Download
+        run: |
+          curl -fL --retry 5 --retry-delay 5 --retry-all-errors --connect-timeout 30 \
+              "https://ftp.postgresql.org/pub/source/v${PG_VERSION}/postgresql-${PG_VERSION}.tar.gz" \
+              -o "postgresql-${PG_VERSION}.tar.gz"
+          tar zxf "postgresql-${PG_VERSION}.tar.gz"
+
+      - name: Configure
+        run: |
+          cd "postgresql-${PG_VERSION}"
+
+          # --with-zstd and --with-lz4 are both new relative to the Jenkins
+          # macOS jobs this replaces, which had neither. Without them pg_dump
+          # and pg_restore on macOS cannot read a zstd-compressed dump that
+          # the Windows build produces quite happily, which is
+          # pgadmin-org/pgadmin4 issue #9425.
+          #
+          # --with-lz4 has existed since PostgreSQL 14, but --with-zstd only
+          # arrived in 15, so it is omitted on older branches rather than
+          # failing configure outright.
+          pg_major="${PG_VERSION%%.*}"
+          zstd_arg="--with-zstd"
+          if [ "${pg_major}" -lt 15 ]; then
+              zstd_arg=""
+              echo "PostgreSQL ${PG_VERSION} predates --with-zstd; building without it"
+          fi
+
+          ./configure \
+              --prefix="${PGBUILD_PREFIX}/postgresql" \
+              --with-openssl \
+              --with-gssapi \
+              ${zstd_arg} \
+              --with-lz4 \
+              --with-includes="${PGBUILD_PREFIX}/openssl/include ${PGBUILD_PREFIX}/krb5/include ${PGBUILD_PREFIX}/zstd/include ${PGBUILD_PREFIX}/lz4/include" \
+              --with-libraries="${PGBUILD_PREFIX}/openssl/lib ${PGBUILD_PREFIX}/krb5/lib ${PGBUILD_PREFIX}/zstd/lib ${PGBUILD_PREFIX}/lz4/lib" \
+              --without-icu
+
+      - name: Build
+        run: |
+          cd "postgresql-${PG_VERSION}"
+          make -j"$(sysctl -n hw.ncpu)" world-bin
+
+      - name: Install
+        run: |
+          cd "postgresql-${PG_VERSION}"
+          make install-world-bin
+
+      # PostgreSQL's `make check` cannot work on macOS. It builds a temporary
+      # install and then relies on DYLD_LIBRARY_PATH to point the freshly built
+      # binaries at the matching libpq, but System Integrity Protection strips
+      # every DYLD_* variable from the environment of a protected process, so
+      # the temporary install's libpq is never found. On the Jenkins hosts it
+      # only appeared to pass because earlier runs had left a libpq behind in
+      # the real installation directory for the binaries to fall back on; an
+      # ephemeral runner starts clean and has no such thing.
+      #
+      # We therefore install first and run installcheck against a server
+      # started from the installed tree. Those binaries carry absolute
+      # install_names pointing at ${PGBUILD_PREFIX}, so they resolve their
+      # libraries without any DYLD_* help and SIP is irrelevant.
+      - name: Test
+        run: |
+          export PATH="${PGBUILD_PREFIX}/postgresql/bin:${PATH}"
+          export PGDATA="${RUNNER_TEMP}/pgdata"
+          export PGHOST="${RUNNER_TEMP}"
+          export PGPORT=55432
+          export PGUSER=postgres
+
+          initdb -D "${PGDATA}" -U postgres --no-sync
+          pg_ctl -D "${PGDATA}" -l "${RUNNER_TEMP}/postmaster.log" \
+              -o "-p ${PGPORT} -k ${PGHOST}" -w start
+
+          cd "postgresql-${PG_VERSION}"
+          make -C src/test/regress installcheck
+
+          pg_ctl -D "${PGDATA}" -w stop
+
+      - name: Upload Test Results
+        uses: actions/upload-artifact@v7
+        with:
+          if-no-files-found: ignore
+          name: postgresql-${{ matrix.version }}-macos-${{ matrix.arch }}-test-logs
+          path: |
+            postgresql-${{ matrix.version }}/src/test/regress/regression.diffs
+            postgresql-${{ matrix.version }}/src/test/regress/log/**
+            ${{ runner.temp }}/postmaster.log
+        if: always()
+
+      - name: Checkout SPDX action
+        uses: actions/checkout@v6
+        with:
+          path: _src
+          sparse-checkout: |
+            .github/actions/generate-spdx-posix
+          sparse-checkout-cone-mode: false
+
+      - name: Copy dependency SPDX manifests
+        run: |
+          mkdir -p "${PGBUILD_PREFIX}/postgresql/MANIFESTS"
+          for pkg in openssl krb5 zstd lz4; do
+              if [ -d "${PGBUILD_PREFIX}/${pkg}/MANIFESTS" ]; then
+                  cp "${PGBUILD_PREFIX}/${pkg}/MANIFESTS"/*.spdx.json \
+                     "${PGBUILD_PREFIX}/postgresql/MANIFESTS/"
+              fi
+          done
+
+      - name: Generate SPDX manifest
+        uses: ./_src/.github/actions/generate-spdx-posix
+        with:
+          package: postgresql
+          install-dir: ${{ env.PGBUILD_PREFIX }}/postgresql
+          version: ${{ matrix.version }}
+
+      - name: Package
+        id: majorVersion
+        run: |
+          major_ver="${PG_VERSION%%.*}"
+          tar -czf "${RUNNER_TEMP}/postgresql-${major_ver}-macos-${ARCH}-latest.tar.gz" \
+              -C "${PGBUILD_PREFIX}" postgresql
+          echo "majorVersion=${major_ver}" >> "${GITHUB_OUTPUT}"
+
+      - name: Upload Binaries
+        uses: actions/upload-artifact@v7
+        with:
+          if-no-files-found: error
+          name: postgresql-${{ matrix.version }}-macos-${{ matrix.arch }}
+          path: ${{ runner.temp }}/postgresql-${{ steps.majorVersion.outputs.majorVersion }}-macos-${{ matrix.arch }}-latest.tar.gz
+
+      - name: Delete Existing Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete "postgresql-${{ steps.majorVersion.outputs.majorVersion }}-macos-${{ matrix.arch }}-latest" --repo "${{ github.repository }}" --cleanup-tag --yes || true
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: "postgresql-${{ steps.majorVersion.outputs.majorVersion }}-macos-${{ matrix.arch }}-latest"
+          target_commitish: ${{ github.sha }}
+          name: "PostgreSQL ${{ steps.majorVersion.outputs.majorVersion }} (macOS ${{ matrix.arch }})"
+          prerelease: true
+          files: |
+            ${{ runner.temp }}/postgresql-${{ steps.majorVersion.outputs.majorVersion }}-macos-${{ matrix.arch }}-latest.tar.gz

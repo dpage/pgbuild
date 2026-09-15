@@ -1,0 +1,115 @@
+name: Build KRB5 (macOS)
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  # pgAdmin supports macOS 14 (Sonoma) and above; see openssl-macos.yml for
+  # why this is pinned rather than inherited from the runner's SDK.
+  MACOSX_DEPLOYMENT_TARGET: '14.0'
+  PGBUILD_PREFIX: /opt/pgbuild
+
+jobs:
+  get-versions:
+    uses: ./.github/workflows/manifest.yml
+    with:
+      config-path: manifest.json
+
+  build-krb5:
+    needs: get-versions
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+
+    runs-on: ${{ matrix.runner }}
+
+    env:
+      KRB5_VERSION: ${{ needs.get-versions.outputs.KRB5_VERSION }}
+
+    steps:
+      - name: Prepare install prefix
+        run: |
+          sudo mkdir -p "${PGBUILD_PREFIX}"
+          sudo chown -R "$(id -u):$(id -g)" "${PGBUILD_PREFIX}"
+
+      - name: Download
+        run: |
+          curl -fL --retry 5 --retry-delay 5 --retry-all-errors --connect-timeout 30 \
+              "https://kerberos.org/dist/krb5/1.22/krb5-${KRB5_VERSION}.tar.gz" \
+              -o "krb5-${KRB5_VERSION}.tar.gz"
+          tar zxf "krb5-${KRB5_VERSION}.tar.gz"
+
+      - name: Configure
+        run: |
+          cd "krb5-${KRB5_VERSION}/src"
+          ./configure --prefix="${PGBUILD_PREFIX}/krb5"
+
+      - name: Build
+        run: |
+          cd "krb5-${KRB5_VERSION}/src"
+          make -j4 all
+
+      # Upstream's `make check` is deliberately not run. It was already skipped
+      # by the Jenkins jobs this workflow replaces, because large parts of the
+      # krb5 test suite stand up a KDC and talk to it over the loopback
+      # interface with fixed ports and a writable /etc, which neither the old
+      # build farm nor an ephemeral GitHub runner provides. We only consume
+      # libgssapi_krb5 and libkrb5 for libpq's GSSAPI support, which the
+      # PostgreSQL build exercises in turn, so the cost of getting the full
+      # suite running has never been worth it. Keeping it skipped, and saying
+      # so here, is better than pretending the coverage exists.
+
+      - name: Install
+        run: |
+          cd "krb5-${KRB5_VERSION}/src"
+          make install
+
+      - name: Checkout SPDX action
+        uses: actions/checkout@v6
+        with:
+          path: _src
+          sparse-checkout: |
+            .github/actions/generate-spdx-posix
+          sparse-checkout-cone-mode: false
+
+      - name: Generate SPDX manifest
+        uses: ./_src/.github/actions/generate-spdx-posix
+        with:
+          package: krb5
+          install-dir: ${{ env.PGBUILD_PREFIX }}/krb5
+
+      - name: Package
+        run: |
+          tar -czf "${RUNNER_TEMP}/krb5-macos-${{ matrix.arch }}-latest.tar.gz" \
+              -C "${PGBUILD_PREFIX}" krb5
+
+      - name: Upload Binaries
+        uses: actions/upload-artifact@v7
+        with:
+          if-no-files-found: error
+          name: krb5-${{ env.KRB5_VERSION }}-macos-${{ matrix.arch }}
+          path: ${{ runner.temp }}/krb5-macos-${{ matrix.arch }}-latest.tar.gz
+
+      - name: Delete Existing Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete "krb5-macos-${{ matrix.arch }}-latest" --repo "${{ github.repository }}" --cleanup-tag --yes || true
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: "krb5-macos-${{ matrix.arch }}-latest"
+          target_commitish: ${{ github.sha }}
+          name: "MIT Kerberos (macOS ${{ matrix.arch }})"
+          prerelease: true
+          files: |
+            ${{ runner.temp }}/krb5-macos-${{ matrix.arch }}-latest.tar.gz

@@ -1,4 +1,4 @@
-name: Build PostgreSQL
+name: Build PostgreSQL (Windows)
 
 on:
   workflow_dispatch:
@@ -49,7 +49,7 @@ jobs:
           path: /builddeps
 
       # Standalone dispatch has no same-run artifact; pull the dependencies
-      # from the dependencies-latest release published by bundle-deps. The
+      # from the dependencies-win64-latest release published by bundle-deps. The
       # release archive has a top-level builddeps/ directory, so extracting to
       # the filesystem root reproduces the \builddeps layout. Skipped on
       # build-all runs, where the step above already succeeded.
@@ -58,12 +58,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release download dependencies-latest `
+          gh release download dependencies-win64-latest `
               --repo ${{ github.repository }} `
-              --pattern postgresql-dependencies-latest.zip `
+              --pattern postgresql-dependencies-win64-latest.zip `
               --dir $env:RUNNER_TEMP
           Expand-Archive `
-              -Path $env:RUNNER_TEMP\postgresql-dependencies-latest.zip `
+              -Path $env:RUNNER_TEMP\postgresql-dependencies-win64-latest.zip `
               -DestinationPath \ -Force
 
       # Copy libraries requires at runtime to installation directory.
@@ -352,7 +352,7 @@ jobs:
         id: majorVersion
         run: |
           $major_ver = '${{ matrix.version }}' -split '\.' | select-object -index 0
-          Compress-Archive /postgresql /postgresql-$($major_ver)-latest.zip
+          Compress-Archive /postgresql /postgresql-$($major_ver)-win64-latest.zip
           Write-Output "majorVersion=$($major_ver)" >> $Env:GITHUB_OUTPUT
           
       - name: Delete Existing Release
@@ -360,14 +360,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release delete "postgresql-${{ steps.majorVersion.outputs.majorVersion}}-latest" --repo "${{ github.repository }}" --cleanup-tag --yes || true
+          gh release delete "postgresql-${{ steps.majorVersion.outputs.majorVersion}}-win64-latest" --repo "${{ github.repository }}" --cleanup-tag --yes || true
 
       - name: Create Release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: "postgresql-${{ steps.majorVersion.outputs.majorVersion}}-latest"
+          tag_name: "postgresql-${{ steps.majorVersion.outputs.majorVersion}}-win64-latest"
           target_commitish: ${{ github.sha }}
-          name: "PostgreSQL ${{ steps.majorVersion.outputs.majorVersion}}"
+          name: "PostgreSQL ${{ steps.majorVersion.outputs.majorVersion}} (Windows x64)"
           prerelease: true
           files: |
-            /postgresql-${{ steps.majorVersion.outputs.majorVersion}}-latest.zip
+            /postgresql-${{ steps.majorVersion.outputs.majorVersion}}-win64-latest.zip
