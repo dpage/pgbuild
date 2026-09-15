@@ -85,27 +85,27 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           if-no-files-found: error
-          name: lz4-${{ env.LZ4_VERSION }}-win64
+          name: lz4-${{ env.LZ4_VERSION }}-windows-x86_64
           path: /lz4
 
       - name: Package Release Assets
         shell: pwsh
         run: |
-          Compress-Archive /lz4 /lz4-win64-latest.zip
+          Compress-Archive /lz4 /lz4-windows-x86_64-latest.zip
           
       - name: Delete Existing Release
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release delete "lz4-win64-latest" --repo "${{ github.repository }}" --cleanup-tag --yes || true
+          gh release delete "lz4-windows-x86_64-latest" --repo "${{ github.repository }}" --cleanup-tag --yes || true
 
       - name: Create Release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: "lz4-win64-latest"
+          tag_name: "lz4-windows-x86_64-latest"
           target_commitish: ${{ github.sha }}
-          name: "lz4 (Windows x64)"
+          name: "lz4 (Windows x86_64)"
           prerelease: true
           files: |
-            /lz4-win64-latest.zip
+            /lz4-windows-x86_64-latest.zip

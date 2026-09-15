@@ -49,5 +49,5 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           if-no-files-found: error
-          name: meson-${{ env.MESON_VERSION }}-win64
+          name: meson-${{ env.MESON_VERSION }}-windows-x86_64
           path: /meson

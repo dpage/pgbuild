@@ -35,7 +35,7 @@ jobs:
     steps:
       - uses: ilammy/msvc-dev-cmd@v1
 
-      # When run via build-all (workflow_call), the all-deps-win64 artifact is
+      # When run via build-all (workflow_call), the all-deps-windows-x86_64 artifact is
       # produced by the bundle-deps job earlier in the same run, so this
       # same-run lookup succeeds. continue-on-error lets a standalone dispatch
       # (where no such artifact exists) fall through to the release fallback
@@ -45,11 +45,11 @@ jobs:
         uses: actions/download-artifact@v7
         continue-on-error: true
         with:
-          name: all-deps-win64
+          name: all-deps-windows-x86_64
           path: /builddeps
 
       # Standalone dispatch has no same-run artifact; pull the dependencies
-      # from the dependencies-win64-latest release published by bundle-deps. The
+      # from the dependencies-windows-x86_64-latest release published by bundle-deps. The
       # release archive has a top-level builddeps/ directory, so extracting to
       # the filesystem root reproduces the \builddeps layout. Skipped on
       # build-all runs, where the step above already succeeded.
@@ -58,12 +58,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release download dependencies-win64-latest `
+          gh release download dependencies-windows-x86_64-latest `
               --repo ${{ github.repository }} `
-              --pattern postgresql-dependencies-win64-latest.zip `
+              --pattern postgresql-dependencies-windows-x86_64-latest.zip `
               --dir $env:RUNNER_TEMP
           Expand-Archive `
-              -Path $env:RUNNER_TEMP\postgresql-dependencies-win64-latest.zip `
+              -Path $env:RUNNER_TEMP\postgresql-dependencies-windows-x86_64-latest.zip `
               -DestinationPath \ -Force
 
       # Copy libraries requires at runtime to installation directory.
@@ -336,7 +336,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           if-no-files-found: error
-          name: postgresql-${{ matrix.version }}-win64
+          name: postgresql-${{ matrix.version }}-windows-x86_64
           path: /postgresql
 
       - name: Upload Meson Log
@@ -352,7 +352,7 @@ jobs:
         id: majorVersion
         run: |
           $major_ver = '${{ matrix.version }}' -split '\.' | select-object -index 0
-          Compress-Archive /postgresql /postgresql-$($major_ver)-win64-latest.zip
+          Compress-Archive /postgresql /postgresql-$($major_ver)-windows-x86_64-latest.zip
           Write-Output "majorVersion=$($major_ver)" >> $Env:GITHUB_OUTPUT
           
       - name: Delete Existing Release
@@ -360,14 +360,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release delete "postgresql-${{ steps.majorVersion.outputs.majorVersion}}-win64-latest" --repo "${{ github.repository }}" --cleanup-tag --yes || true
+          gh release delete "postgresql-${{ steps.majorVersion.outputs.majorVersion}}-windows-x86_64-latest" --repo "${{ github.repository }}" --cleanup-tag --yes || true
 
       - name: Create Release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: "postgresql-${{ steps.majorVersion.outputs.majorVersion}}-win64-latest"
+          tag_name: "postgresql-${{ steps.majorVersion.outputs.majorVersion}}-windows-x86_64-latest"
           target_commitish: ${{ github.sha }}
-          name: "PostgreSQL ${{ steps.majorVersion.outputs.majorVersion}} (Windows x64)"
+          name: "PostgreSQL ${{ steps.majorVersion.outputs.majorVersion}} (Windows x86_64)"
           prerelease: true
           files: |
-            /postgresql-${{ steps.majorVersion.outputs.majorVersion}}-win64-latest.zip
+            /postgresql-${{ steps.majorVersion.outputs.majorVersion}}-windows-x86_64-latest.zip

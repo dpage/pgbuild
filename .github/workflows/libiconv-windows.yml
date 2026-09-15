@@ -83,28 +83,28 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           if-no-files-found: error
-          name: libiconv-${{ env.LIBICONV_VERSION }}-win64
+          name: libiconv-${{ env.LIBICONV_VERSION }}-windows-x86_64
           path: libiconv-${{ env.LIBICONV_VERSION }}/winpgbuild
 
       - name: Package Release Assets
         run: |
           cd libiconv-${{ env.LIBICONV_VERSION }}
           mv winpgbuild libiconv
-          zip -r libiconv-win64-latest.zip libiconv
+          zip -r libiconv-windows-x86_64-latest.zip libiconv
           
       - name: Delete Existing Release
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release delete "libiconv-win64-latest" --repo "${{ github.repository }}" --cleanup-tag --yes || true
+          gh release delete "libiconv-windows-x86_64-latest" --repo "${{ github.repository }}" --cleanup-tag --yes || true
 
       - name: Create Release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: "libiconv-win64-latest"
+          tag_name: "libiconv-windows-x86_64-latest"
           target_commitish: ${{ github.sha }}
-          name: "libiconv (Windows x64)"
+          name: "libiconv (Windows x86_64)"
           prerelease: true
           files: |
-            libiconv-${{ env.LIBICONV_VERSION }}/libiconv-win64-latest.zip
+            libiconv-${{ env.LIBICONV_VERSION }}/libiconv-windows-x86_64-latest.zip

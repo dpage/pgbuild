@@ -31,13 +31,13 @@ jobs:
       - name: Download meson
         uses: actions/download-artifact@v7
         with:
-          name: meson-${{ env.MESON_VERSION }}-win64
+          name: meson-${{ env.MESON_VERSION }}-windows-x86_64
           path: /builddeps
 
       - name: Download ninja
         uses: actions/download-artifact@v7
         with:
-          name: ninja-${{ env.NINJA_VERSION }}-win64
+          name: ninja-${{ env.NINJA_VERSION }}-windows-x86_64
           path: /builddeps
 
       - name: Add build deps to path
@@ -93,5 +93,5 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           if-no-files-found: error
-          name: pkgconf-${{ env.PKGCONF_VERSION }}-win64
+          name: pkgconf-${{ env.PKGCONF_VERSION }}-windows-x86_64
           path: /pkgconf

@@ -27,13 +27,13 @@ jobs:
       - name: Download libxml2
         uses: actions/download-artifact@v7
         with:
-          name: libxml2-${{ env.LIBXML2_VERSION }}-win64
+          name: libxml2-${{ env.LIBXML2_VERSION }}-windows-x86_64
           path: /build/libxml2
 
       - name: Download zlib
         uses: actions/download-artifact@v7
         with:
-          name: zlib-${{ env.ZLIB_VERSION }}-win64
+          name: zlib-${{ env.ZLIB_VERSION }}-windows-x86_64
           path: /build/zlib
 
       - name: Download
@@ -81,27 +81,27 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           if-no-files-found: error
-          name: libxslt-${{ env.LIBXSLT_VERSION }}-win64
+          name: libxslt-${{ env.LIBXSLT_VERSION }}-windows-x86_64
           path: /libxslt
 
       - name: Package Release Assets
         shell: pwsh
         run: |
-          Compress-Archive /libxslt /libxslt-win64-latest.zip
+          Compress-Archive /libxslt /libxslt-windows-x86_64-latest.zip
           
       - name: Delete Existing Release
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release delete "libxslt-win64-latest" --repo "${{ github.repository }}" --cleanup-tag --yes || true
+          gh release delete "libxslt-windows-x86_64-latest" --repo "${{ github.repository }}" --cleanup-tag --yes || true
 
       - name: Create Release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: "libxslt-win64-latest"
+          tag_name: "libxslt-windows-x86_64-latest"
           target_commitish: ${{ github.sha }}
-          name: "libxslt (Windows x64)"
+          name: "libxslt (Windows x86_64)"
           prerelease: true
           files: |
-            /libxslt-win64-latest.zip
+            /libxslt-windows-x86_64-latest.zip

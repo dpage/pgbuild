@@ -103,28 +103,28 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           if-no-files-found: error
-          name: ossp-uuid-${{ env.OSSP-UUID_VERSION }}-win64
+          name: ossp-uuid-${{ env.OSSP-UUID_VERSION }}-windows-x86_64
           path: ossp-uuid-upstream-${{ env.OSSP-UUID_VERSION }}/winpgbuild
 
       - name: Package Release Assets
         run: |
           cd ossp-uuid-upstream-${{ env.OSSP-UUID_VERSION }}
           mv winpgbuild ossp-uuid
-          zip -r ossp-uuid-win64-latest.zip ossp-uuid
+          zip -r ossp-uuid-windows-x86_64-latest.zip ossp-uuid
           
       - name: Delete Existing Release
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release delete "ossp-uuid-win64-latest" --repo "${{ github.repository }}" --cleanup-tag --yes || true
+          gh release delete "ossp-uuid-windows-x86_64-latest" --repo "${{ github.repository }}" --cleanup-tag --yes || true
 
       - name: Create Release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: "ossp-uuid-win64-latest"
+          tag_name: "ossp-uuid-windows-x86_64-latest"
           target_commitish: ${{ github.sha }}
-          name: "ossp-uuid (Windows x64)"
+          name: "ossp-uuid (Windows x86_64)"
           prerelease: true
           files: |
-            ossp-uuid-upstream-${{ env.OSSP-UUID_VERSION }}/ossp-uuid-win64-latest.zip
+            ossp-uuid-upstream-${{ env.OSSP-UUID_VERSION }}/ossp-uuid-windows-x86_64-latest.zip

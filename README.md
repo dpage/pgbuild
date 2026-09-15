@@ -91,9 +91,9 @@ and the run would be rejected outright.
 
 ## Platforms and architectures
 
-Windows builds target x64 and run on `windows-latest`. macOS builds are
+Windows builds target x86\_64 and run on `windows-latest`. macOS builds are
 produced separately for each architecture rather than as universal binaries:
-arm64 on `macos-15`, and x86\_64 on `macos-15-intel`. Both are free hosted
+arm64 on `macos-15`, and x86\_64 on `macos-15-intel`. All three are free hosted
 runners for public repositories.
 
 Every macOS build sets `MACOSX_DEPLOYMENT_TARGET=14.0`, because pgAdmin
@@ -107,15 +107,26 @@ Each workflow publishes its output as a rolling prerelease under a stable tag,
 so that consumers can download a known URL and always get the most recent
 build. Tags carry the platform and, on macOS, the architecture:
 
+Every tag is `<package>-<platform>-<architecture>-latest`, with the platform and
+the architecture named separately so that either can vary:
+
 ```
-openssl-win64-latest
+openssl-windows-x86_64-latest
 openssl-macos-arm64-latest
 openssl-macos-x86_64-latest
-postgresql-18-win64-latest
+postgresql-18-windows-x86_64-latest
 postgresql-18-macos-arm64-latest
 postgresql-18-macos-x86_64-latest
-dependencies-win64-latest
+dependencies-windows-x86_64-latest
 ```
+
+Build artefacts follow the same scheme with the full version in place of
+`latest`, so `openssl-3.5.8-windows-x86_64` and `openssl-3.5.8-macos-arm64`.
+
+Windows spells its architecture out as `x86_64` rather than leaving it implied
+in a `win64` suffix, even though x86\_64 is the only Windows architecture built
+today, because the architecture being separable is the whole point; see the
+roadmap below.
 
 Windows assets are `.zip`, matching the platform's conventions and the existing
 downstream tooling. macOS assets are `.tar.gz`, which is the only one of the two
@@ -290,3 +301,27 @@ and links against it, named explicitly in `config.pl` for the MSVC builds and
 picked up through pkg-config for the Meson ones, and ships the ICU DLLs
 alongside the binaries; the macOS build passes `--without-icu` and does not
 build it at all.
+
+## Roadmap
+
+### ARM64 Windows
+
+Windows on ARM64 has been asked for
+([dpage/winpgbuild#17](https://github.com/dpage/winpgbuild/issues/17)) and is
+not far-fetched, since GitHub now offers free `windows-11-arm` hosted runners to
+public repositories, so the machines to build it on are already available at no
+cost.
+
+Nothing here builds it yet, and this is not a commitment to. What has been done
+is to leave the door open: the naming scheme carries the platform and the
+architecture as separate, explicit components on both platforms, so an ARM64
+Windows build slots in as `openssl-windows-arm64-latest` beside the existing
+`openssl-windows-x86_64-latest` without renaming anything or breaking a single
+consumer. Getting that wrong would have been free to fix today and expensive
+once anything downstream had started resolving these tags.
+
+The obstacle is not naming but the call-tree cap described above: a second
+Windows architecture means a second set of leaves, and `build-all-windows.yml`
+has no room for them. Whoever takes it on will need to split that orchestrator
+first, most likely one per architecture in the way the platforms are split
+today.

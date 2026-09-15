@@ -96,27 +96,27 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           if-no-files-found: error
-          name: zstd-${{ env.ZSTD_VERSION }}-win64
+          name: zstd-${{ env.ZSTD_VERSION }}-windows-x86_64
           path: /zstd
 
       - name: Package Release Assets
         shell: pwsh
         run: |
-          Compress-Archive /zstd /zstd-win64-latest.zip
+          Compress-Archive /zstd /zstd-windows-x86_64-latest.zip
           
       - name: Delete Existing Release
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release delete "zstd-win64-latest" --repo "${{ github.repository }}" --cleanup-tag --yes || true
+          gh release delete "zstd-windows-x86_64-latest" --repo "${{ github.repository }}" --cleanup-tag --yes || true
 
       - name: Create Release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: "zstd-win64-latest"
+          tag_name: "zstd-windows-x86_64-latest"
           target_commitish: ${{ github.sha }}
-          name: "zstd (Windows x64)"
+          name: "zstd (Windows x86_64)"
           prerelease: true
           files: |
-            /zstd-win64-latest.zip
+            /zstd-windows-x86_64-latest.zip

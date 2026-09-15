@@ -45,5 +45,5 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           if-no-files-found: error
-          name: ninja-${{ env.NINJA_VERSION }}-win64
+          name: ninja-${{ env.NINJA_VERSION }}-windows-x86_64
           path: /ninja

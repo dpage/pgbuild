@@ -36,97 +36,97 @@ jobs:
       - name: Download diffutils
         uses: actions/download-artifact@v7
         with:
-          name: diffutils-${{ env.DIFFUTILS_VERSION }}-win64
+          name: diffutils-${{ env.DIFFUTILS_VERSION }}-windows-x86_64
           path: /builddeps
 
       - name: Download gettext
         uses: actions/download-artifact@v7
         with:
-          name: gettext-${{ env.GETTEXT_VERSION }}-win64
+          name: gettext-${{ env.GETTEXT_VERSION }}-windows-x86_64
           path: /builddeps
 
       - name: Download icu
         uses: actions/download-artifact@v7
         with:
-          name: icu-${{ env.ICU_VERSION }}-win64
+          name: icu-${{ env.ICU_VERSION }}-windows-x86_64
           path: /builddeps
 
       - name: Download krb5
         uses: actions/download-artifact@v7
         with:
-          name: krb5-${{ env.KRB5_VERSION }}-win64
+          name: krb5-${{ env.KRB5_VERSION }}-windows-x86_64
           path: /builddeps
 
       - name: Download libiconv
         uses: actions/download-artifact@v7
         with:
-          name: libiconv-${{ env.LIBICONV_VERSION }}-win64
+          name: libiconv-${{ env.LIBICONV_VERSION }}-windows-x86_64
           path: /builddeps
 
       - name: Download libxml2
         uses: actions/download-artifact@v7
         with:
-          name: libxml2-${{ env.LIBXML2_VERSION }}-win64
+          name: libxml2-${{ env.LIBXML2_VERSION }}-windows-x86_64
           path: /builddeps
 
       - name: Download libxslt
         uses: actions/download-artifact@v7
         with:
-          name: libxslt-${{ env.LIBXSLT_VERSION }}-win64
+          name: libxslt-${{ env.LIBXSLT_VERSION }}-windows-x86_64
           path: /builddeps
 
       - name: Download lz4
         uses: actions/download-artifact@v7
         with:
-          name: lz4-${{ env.LZ4_VERSION }}-win64
+          name: lz4-${{ env.LZ4_VERSION }}-windows-x86_64
           path: /builddeps
 
       - name: Download meson
         uses: actions/download-artifact@v7
         with:
-          name: meson-${{ env.MESON_VERSION }}-win64
+          name: meson-${{ env.MESON_VERSION }}-windows-x86_64
           path: /builddeps
 
       - name: Download ninja
         uses: actions/download-artifact@v7
         with:
-          name: ninja-${{ env.NINJA_VERSION }}-win64
+          name: ninja-${{ env.NINJA_VERSION }}-windows-x86_64
           path: /builddeps
 
       - name: Download openssl
         uses: actions/download-artifact@v7
         with:
-          name: openssl-${{ env.OPENSSL_VERSION }}-win64
+          name: openssl-${{ env.OPENSSL_VERSION }}-windows-x86_64
           path: /builddeps
 
       - name: Download ossp-uuid
         uses: actions/download-artifact@v7
         with:
-          name: ossp-uuid-${{ env.OSSP-UUID_VERSION }}-win64
+          name: ossp-uuid-${{ env.OSSP-UUID_VERSION }}-windows-x86_64
           path: /builddeps
 
       - name: Download pkgconf
         uses: actions/download-artifact@v7
         with:
-          name: pkgconf-${{ env.PKGCONF_VERSION }}-win64
+          name: pkgconf-${{ env.PKGCONF_VERSION }}-windows-x86_64
           path: /builddeps
 
       - name: Download winflexbison
         uses: actions/download-artifact@v7
         with:
-          name: winflexbison-${{ env.WINFLEXBISON_VERSION }}-win64
+          name: winflexbison-${{ env.WINFLEXBISON_VERSION }}-windows-x86_64
           path: /builddeps
 
       - name: Download zlib
         uses: actions/download-artifact@v7
         with:
-          name: zlib-${{ env.ZLIB_VERSION }}-win64
+          name: zlib-${{ env.ZLIB_VERSION }}-windows-x86_64
           path: /builddeps
 
       - name: Download zstd
         uses: actions/download-artifact@v7
         with:
-          name: zstd-${{ env.ZSTD_VERSION }}-win64
+          name: zstd-${{ env.ZSTD_VERSION }}-windows-x86_64
           path: /builddeps
 
       # github errors out due to too many files :(
@@ -142,27 +142,27 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           if-no-files-found: error
-          name: all-deps-win64
+          name: all-deps-windows-x86_64
           path: /builddeps
 
       - name: Package Release Assets
         shell: pwsh
         run: |
-          Compress-Archive /builddeps /postgresql-dependencies-win64-latest.zip
+          Compress-Archive /builddeps /postgresql-dependencies-windows-x86_64-latest.zip
           
       - name: Delete Existing Release
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release delete "dependencies-win64-latest" --repo "${{ github.repository }}" --cleanup-tag --yes || true
+          gh release delete "dependencies-windows-x86_64-latest" --repo "${{ github.repository }}" --cleanup-tag --yes || true
 
       - name: Create Release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: "dependencies-win64-latest"
+          tag_name: "dependencies-windows-x86_64-latest"
           target_commitish: ${{ github.sha }}
-          name: "PostgreSQL Dependencies (Windows x64)"
+          name: "PostgreSQL Dependencies (Windows x86_64)"
           prerelease: true
           files: |
-            /postgresql-dependencies-win64-latest.zip
+            /postgresql-dependencies-windows-x86_64-latest.zip

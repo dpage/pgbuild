@@ -88,27 +88,27 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           if-no-files-found: error
-          name: openssl-${{ env.OPENSSL_VERSION }}-win64
+          name: openssl-${{ env.OPENSSL_VERSION }}-windows-x86_64
           path: /openssl
 
       - name: Package Release Assets
         shell: pwsh
         run: |
-          Compress-Archive /openssl /openssl-win64-latest.zip
+          Compress-Archive /openssl /openssl-windows-x86_64-latest.zip
           
       - name: Delete Existing Release
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release delete "openssl-win64-latest" --repo "${{ github.repository }}" --cleanup-tag --yes || true
+          gh release delete "openssl-windows-x86_64-latest" --repo "${{ github.repository }}" --cleanup-tag --yes || true
 
       - name: Create Release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: "openssl-win64-latest"
+          tag_name: "openssl-windows-x86_64-latest"
           target_commitish: ${{ github.sha }}
-          name: "OpenSSL (Windows x64)"
+          name: "OpenSSL (Windows x86_64)"
           prerelease: true
           files: |
-            /openssl-win64-latest.zip
+            /openssl-windows-x86_64-latest.zip
