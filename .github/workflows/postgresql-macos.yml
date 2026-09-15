@@ -229,18 +229,36 @@ jobs:
           name: postgresql-${{ matrix.version }}-macos-${{ matrix.arch }}
           path: ${{ runner.temp }}/postgresql-${{ steps.majorVersion.outputs.majorVersion }}-macos-${{ matrix.arch }}-latest.tar.gz
 
-      - name: Delete Existing Release
+      # Publishing is done with the gh CLI and a retry loop rather than with
+      # softprops/action-gh-release, because GitHub applies a secondary rate
+      # limit to release and tag creation that several matrix jobs finishing at
+      # once will trip. It surfaces as a bare 403 on the create call, with
+      # nothing in the response identifying it as a rate limit, and the action
+      # reads that as a permissions failure and refuses to retry, which turns a
+      # few seconds of back-off into a failed build. Deleting and recreating,
+      # rather than editing in place, is what keeps the tag pointing at the
+      # commit that produced the assets.
+      - name: Publish Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: postgresql-${{ steps.majorVersion.outputs.majorVersion }}-macos-${{ matrix.arch }}-latest
+          TITLE: PostgreSQL ${{ steps.majorVersion.outputs.majorVersion }} (macOS ${{ matrix.arch }})
+          ASSET: ${{ runner.temp }}/postgresql-${{ steps.majorVersion.outputs.majorVersion }}-macos-${{ matrix.arch }}-latest.tar.gz
         run: |
-          gh release delete "postgresql-${{ steps.majorVersion.outputs.majorVersion }}-macos-${{ matrix.arch }}-latest" --repo "${{ github.repository }}" --cleanup-tag --yes || true
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: "postgresql-${{ steps.majorVersion.outputs.majorVersion }}-macos-${{ matrix.arch }}-latest"
-          target_commitish: ${{ github.sha }}
-          name: "PostgreSQL ${{ steps.majorVersion.outputs.majorVersion }} (macOS ${{ matrix.arch }})"
-          prerelease: true
-          files: |
-            ${{ runner.temp }}/postgresql-${{ steps.majorVersion.outputs.majorVersion }}-macos-${{ matrix.arch }}-latest.tar.gz
+          set -euo pipefail
+          for attempt in 1 2 3 4 5; do
+              gh release delete "${TAG}" --repo "${GITHUB_REPOSITORY}" \
+                  --cleanup-tag --yes || true
+              if gh release create "${TAG}" "${ASSET}" \
+                      --repo "${GITHUB_REPOSITORY}" \
+                      --target "${GITHUB_SHA}" \
+                      --title "${TITLE}" \
+                      --prerelease; then
+                  echo "Published ${TAG}"
+                  exit 0
+              fi
+              echo "Publishing ${TAG} failed on attempt ${attempt}; backing off"
+              sleep $((attempt * 30))
+          done
+          echo "Giving up on ${TAG} after 5 attempts" >&2
+          exit 1
