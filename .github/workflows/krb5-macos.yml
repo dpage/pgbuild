@@ -115,19 +115,44 @@ jobs:
           ASSET: ${{ runner.temp }}/krb5-macos-${{ matrix.arch }}-latest.tar.gz
         run: |
           set -euo pipefail
+
+          # True only when the release exists, is not a draft, and therefore
+          # has a real tag behind it that consumers can download by.
+          is_published() {
+              [ "$(gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" \
+                      --json isDraft --jq .isDraft 2>/dev/null)" = "false" ]
+          }
+
           for attempt in 1 2 3 4 5; do
               gh release delete "${TAG}" --repo "${GITHUB_REPOSITORY}" \
                   --cleanup-tag --yes || true
+
               if gh release create "${TAG}" "${ASSET}" \
                       --repo "${GITHUB_REPOSITORY}" \
                       --target "${GITHUB_SHA}" \
                       --title "${TITLE}" \
                       --prerelease; then
-                  echo "Published ${TAG}"
-                  exit 0
+                  if is_published; then
+                      echo "Published ${TAG}"
+                      exit 0
+                  fi
+                  # gh creates the release as a draft, uploads the assets and
+                  # only then flips it to published. Under contention it has
+                  # been seen to exit zero having left the release a draft,
+                  # which looks like a working release in the web interface but
+                  # has no tag, so nothing can download it. Ask again, plainly.
+                  echo "${TAG} was left as a draft; publishing it explicitly"
+                  gh release edit "${TAG}" --repo "${GITHUB_REPOSITORY}" \
+                      --draft=false || true
+                  if is_published; then
+                      echo "Published ${TAG}"
+                      exit 0
+                  fi
               fi
+
               echo "Publishing ${TAG} failed on attempt ${attempt}; backing off"
               sleep $((attempt * 30))
           done
+
           echo "Giving up on ${TAG} after 5 attempts" >&2
           exit 1
