@@ -1,0 +1,10 @@
+# actionlint configuration.
+#
+# macos-15-intel is a genuine GitHub-hosted runner label, and is what the macOS
+# x86_64 builds run on, but actionlint carries a hardcoded list of known labels
+# that has not caught up with it yet and so reports it as unknown. Declaring it
+# here is the only way actionlint offers to suppress that, even though this is
+# not in fact a self-hosted runner.
+self-hosted-runner:
+  labels:
+    - macos-15-intel
