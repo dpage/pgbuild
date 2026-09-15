@@ -112,6 +112,17 @@ jobs:
         run: |
           cd "postgresql-${PG_VERSION}"
 
+          # PostgreSQL finds lz4 and zstd through pkg-config, and the runner
+          # image ships Homebrew copies of both. Without this, configure
+          # happily reports -I/opt/homebrew/opt/zstd/include ahead of our own
+          # include directory, so the build compiles against Homebrew's headers
+          # whilst linking our libraries, which is the sort of arrangement that
+          # works right up until the two versions diverge. PKG_CONFIG_PATH is
+          # searched before pkg-config's built-in directories, so putting our
+          # trees here makes it resolve to the libraries we actually built and
+          # ship.
+          export PKG_CONFIG_PATH="${PGBUILD_PREFIX}/zstd/lib/pkgconfig:${PGBUILD_PREFIX}/lz4/lib/pkgconfig:${PGBUILD_PREFIX}/openssl/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+
           # --with-zstd and --with-lz4 are both new relative to the Jenkins
           # macOS jobs this replaces, which had neither. Without them pg_dump
           # and pg_restore on macOS cannot read a zstd-compressed dump that
