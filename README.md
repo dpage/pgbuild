@@ -134,8 +134,19 @@ that preserves the dylib version symlinks and executable bits that anything
 linking against these trees depends on.
 
 PostgreSQL release tags carry the major version only, so `postgresql-18-...`
-tracks whatever minor release `manifest.json` currently pins. Build artifacts,
+tracks whatever minor release `manifest.json` currently pins. Build artefacts,
 as opposed to releases, carry the full version and so are unambiguous.
+
+A rolling release is created once and thereafter updated in place: each build
+moves the tag onto its own commit and replaces the asset, rather than deleting
+the release and making a new one. The release therefore keeps its identity and
+its creation date across builds, so read the asset's timestamp, not the
+release's, to tell how fresh a download is. Creating a release on this
+repository has proved unreliable from within Actions, returning 403 for long
+stretches on a token that was demonstrably allowed to do it, and confining that
+call to the first build of a given package is the practical way around that; the
+macOS workflows retry regardless, and check that what they published is not a
+draft, since a draft release has no tag and cannot be downloaded.
 
 ### Software bills of materials
 
