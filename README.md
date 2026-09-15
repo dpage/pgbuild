@@ -1,25 +1,15 @@
 # pgbuild
 
 GitHub Actions workflows that build PostgreSQL and its dependencies for the
-pgAdmin build farm, on both Windows and macOS. A number of build tools are
-included alongside the libraries so that the Windows builds are reproducible,
-though those are generally downloaded as pre-built utilities rather than
-compiled here.
+pgAdmin build farm, on both Windows and macOS. The Windows side also packages a
+handful of build tools, namely Meson, Ninja, pkgconf, winflexbison and
+diffutils, so that its builds are reproducible; most of those are downloaded as
+pre-built utilities rather than compiled here.
 
 This repository began life as [dpage/winpgbuild](https://github.com/dpage/winpgbuild),
 which built the Windows side only, and its history is preserved here. The macOS
 builds replace a set of Jenkins jobs that pgAdmin is retiring as it moves its
 build farm onto GitHub Actions.
-
-## Build status
-
-| Tree | Status |
-|------|--------|
-| Windows | [![Build All (Windows)](https://github.com/pgadmin-org/pgbuild/actions/workflows/build-all-windows.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/build-all-windows.yml) |
-| macOS | [![Build All (macOS)](https://github.com/pgadmin-org/pgbuild/actions/workflows/build-all-macos.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/build-all-macos.yml) |
-
-Per-package status is on the Actions tab; with a leaf workflow for each package
-on each platform there are rather too many of them to list usefully here.
 
 ## Licence
 
@@ -31,10 +21,31 @@ workflows publish are builds of third-party software, each of which carries its
 own upstream licence, and redistributing them means complying with those rather
 than with the licence above. Every package records its upstream licence in
 [manifest.json](manifest.json), as a `licence` URL pointing at the canonical
-licence text and an `spdx_license` expression naming it; the same information
-is emitted into each artifact as an SPDX 2.3 document under `MANIFESTS/`, so a
-downstream consumer can read it out of the tarball or zip without coming back
-here.
+licence text and an `spdx_license` expression naming it.
+
+## Build status
+
+| Package | Windows | macOS |
+|---------|---------|-------|
+| **Everything** | [![Build All (Windows)](https://github.com/pgadmin-org/pgbuild/actions/workflows/build-all-windows.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/build-all-windows.yml) | [![Build All (macOS)](https://github.com/pgadmin-org/pgbuild/actions/workflows/build-all-macos.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/build-all-macos.yml) |
+| PostgreSQL | [![Build PostgreSQL (Windows)](https://github.com/pgadmin-org/pgbuild/actions/workflows/postgresql-windows.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/postgresql-windows.yml) | [![Build PostgreSQL (macOS)](https://github.com/pgadmin-org/pgbuild/actions/workflows/postgresql-macos.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/postgresql-macos.yml) |
+| PostgreSQL (dev) | [![Build PostgreSQL (Dev) (Windows)](https://github.com/pgadmin-org/pgbuild/actions/workflows/postgresql-dev-windows.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/postgresql-dev-windows.yml) | not built |
+| OpenSSL | [![Build OpenSSL (Windows)](https://github.com/pgadmin-org/pgbuild/actions/workflows/openssl-windows.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/openssl-windows.yml) | [![Build OpenSSL (macOS)](https://github.com/pgadmin-org/pgbuild/actions/workflows/openssl-macos.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/openssl-macos.yml) |
+| MIT Kerberos | [![Build KRB5 (Windows)](https://github.com/pgadmin-org/pgbuild/actions/workflows/krb5-windows.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/krb5-windows.yml) | [![Build KRB5 (macOS)](https://github.com/pgadmin-org/pgbuild/actions/workflows/krb5-macos.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/krb5-macos.yml) |
+| zstd | [![Build zstd (Windows)](https://github.com/pgadmin-org/pgbuild/actions/workflows/zstd-windows.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/zstd-windows.yml) | [![Build zstd (macOS)](https://github.com/pgadmin-org/pgbuild/actions/workflows/zstd-macos.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/zstd-macos.yml) |
+| lz4 | [![Build lz4 (Windows)](https://github.com/pgadmin-org/pgbuild/actions/workflows/lz4-windows.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/lz4-windows.yml) | [![Build lz4 (macOS)](https://github.com/pgadmin-org/pgbuild/actions/workflows/lz4-macos.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/lz4-macos.yml) |
+| zlib | [![Build zlib (Windows)](https://github.com/pgadmin-org/pgbuild/actions/workflows/zlib-windows.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/zlib-windows.yml) | system |
+| ICU | [![Build ICU (Windows)](https://github.com/pgadmin-org/pgbuild/actions/workflows/icu-windows.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/icu-windows.yml) | not used |
+| gettext | [![Build gettext (Windows)](https://github.com/pgadmin-org/pgbuild/actions/workflows/gettext-windows.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/gettext-windows.yml) | not built |
+| libiconv | [![Build libiconv (Windows)](https://github.com/pgadmin-org/pgbuild/actions/workflows/libiconv-windows.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/libiconv-windows.yml) | system |
+| libxml2 | [![Build libxml2 (Windows)](https://github.com/pgadmin-org/pgbuild/actions/workflows/libxml2-windows.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/libxml2-windows.yml) | not built |
+| libxslt | [![Build libxslt (Windows)](https://github.com/pgadmin-org/pgbuild/actions/workflows/libxslt-windows.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/libxslt-windows.yml) | not built |
+| ossp-uuid | [![Build ossp-uuid (Windows)](https://github.com/pgadmin-org/pgbuild/actions/workflows/ossp-uuid-windows.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/ossp-uuid-windows.yml) | not built |
+| Dependency bundle | [![Bundle dependencies (Windows)](https://github.com/pgadmin-org/pgbuild/actions/workflows/bundle-deps-windows.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/bundle-deps-windows.yml) | not needed |
+
+The five Windows build-tool workflows are left out of the table:
+`diffutils-windows.yml`, `meson-windows.yml`, `ninja-windows.yml`,
+`pkgconf-windows.yml` and `winflexbison-windows.yml`.
 
 ## Layout
 
@@ -52,24 +63,31 @@ is named `<package>-<platform>.yml`, giving `openssl-windows.yml`,
 | `<package>-windows.yml` | One Windows package |
 | `<package>-macos.yml` | One macOS package, built for both architectures |
 
-The macOS builds install into `/opt/pgbuild/<package>`, and the binaries
-therefore carry absolute `install_name` references into that prefix; anything
+The macOS builds install into `/opt/pgbuild/<package>`, and the resulting
+binaries carry absolute `install_name` references into that prefix; anything
 that relocates them into an application bundle will need to rewrite those.
 
 ### Reusable workflow limits
 
-GitHub Actions caps a workflow at 20 unique reusable workflows across its
-entire call tree. `build-all-windows.yml` sits exactly on that cap, with its 19
-leaves plus `manifest.yml`, which every leaf calls and which counts once;
-`build-all-macos.yml` uses 6, being its 5 leaves plus `manifest.yml`. Splitting
-the two platforms apart is what keeps either of them buildable at all, and it
-is also why `build-all.yml` dispatches the two orchestrators through the API
-instead of calling them with `uses:`, since doing the latter would come to 27
-unique workflows and the run would simply be rejected.
+GitHub Actions caps a workflow at 20 unique reusable workflows across its whole
+call tree, and that cap is what shapes the structure here.
 
-Adding a further Windows package will need `build-all-windows.yml` broken into
-staged orchestrators dispatched the same way. There is plenty of room on the
-macOS side.
+`manifest.yml` is a single shared reusable workflow. Every leaf calls it to read
+its pinned version out of `manifest.json`, but because the cap counts *unique*
+workflows rather than calls, it contributes one to the total no matter how many
+leaves call it. `build-all-windows.yml` therefore comes to exactly 20: its 19
+Windows leaves plus `manifest.yml`. It is full, and adding a twentieth Windows
+package will mean breaking it into staged orchestrators dispatched through the
+API rather than called with `uses:`.
+
+`build-all-macos.yml` comes to 6, being its 5 macOS leaves plus `manifest.yml`,
+so there is plenty of room on that side.
+
+Splitting the platforms apart is what keeps either tree buildable, since a
+single combined orchestrator would have come to 25. It is also why
+`build-all.yml` dispatches the two orchestrators through the API instead of
+calling them: calling them would nest their trees inside its own, reaching 27,
+and the run would be rejected outright.
 
 ## Platforms and architectures
 
@@ -100,28 +118,57 @@ dependencies-win64-latest
 ```
 
 Windows assets are `.zip`, matching the platform's conventions and the existing
-downstream tooling. macOS assets are `.tar.gz`, which is the only one of the
-two that preserves the dylib version symlinks and executable bits that anything
+downstream tooling. macOS assets are `.tar.gz`, which is the only one of the two
+that preserves the dylib version symlinks and executable bits that anything
 linking against these trees depends on.
 
 PostgreSQL release tags carry the major version only, so `postgresql-18-...`
 tracks whatever minor release `manifest.json` currently pins. Build artifacts,
 as opposed to releases, carry the full version and so are unambiguous.
 
+### Software bills of materials
+
+Every build writes an SPDX 2.3 document into `MANIFESTS/<package>.spdx.json`
+inside its own install tree, generated from `manifest.json` at the commit being
+built, so the package name, version, upstream homepage and SPDX licence
+expression travel inside the artifact. Because the manifest lands in the
+install tree rather than beside it, a bundler that simply extracts its
+dependencies' artifacts, as `bundle-deps-windows.yml` does, collects their
+manifests for free; the two PostgreSQL workflows additionally copy the
+dependency manifests alongside their own. A downstream consumer can therefore
+read the licence position out of the tarball or zip without coming back here.
+
+This is why `source` and `spdx_license` in `manifest.json` are not merely
+informational: changing them changes what ships.
+
 ## Automation
 
 The two orchestrators run nightly on a schedule, Windows at 00:00 UTC and macOS
-at 02:00 UTC, because GitHub only retains build artifacts for 90 days and the
-releases need to stay fresh. Every leaf workflow is also individually
-dispatchable, and a leaf run that cannot find a dependency artifact from its own
-run falls back to downloading that dependency's rolling release, which is what
-makes standalone dispatch work at all.
+at 02:00 UTC. Each is a single-run DAG that builds its whole tree in dependency
+order within one run, which is what lets a downstream job consume an upstream
+job's artifact directly. The individual leaf workflows have no cron of their
+own; they are triggered by the orchestrator, or dispatched by hand.
+
+Every leaf is also independently dispatchable. A leaf run that cannot find a
+dependency artifact from its own run falls back to downloading that
+dependency's rolling release instead, which is what makes a standalone dispatch
+work at all.
+
+The point of running nightly is currency rather than survival. Release assets do
+not expire: `dpage/winpgbuild` still serves its `postgresql-13-latest` asset,
+published in January 2026, for a PostgreSQL major version the manifest stopped
+building some time ago. What does expire is the Actions artifacts the jobs pass
+between each other, which this repository retains for 90 days, that being
+GitHub's maximum. So a nightly rebuild is about picking up upstream minor
+releases and security fixes promptly, and about knowing that the build still
+works, rather than about stopping the published assets from vanishing.
 
 ## Version information
 
 Versions for every package are pinned in [manifest.json](manifest.json), which
 both platforms read through the shared `manifest.yml` reusable workflow. There
-is one entry per package regardless of how many platforms build it.
+is one entry per package regardless of how many platforms build it, so a version
+bump lands once and applies everywhere.
 
 ## Adding a package
 
@@ -138,12 +185,15 @@ elements are more or less in alphabetical order, libiconv being the exception.
 }
 ```
 
-The workflows use `name` and `version` to drive the build, and `source`,
-`licence` and `spdx_license` to populate the SPDX manifest that ships inside
-each artifact.
+The workflows use `name` and `version` to drive the build, and `name`, `version`,
+`source` and `spdx_license` to populate the SPDX manifest that ships inside each
+artifact. `licence`, the URL of the human-readable licence text, is the one
+field that is purely informational.
 
-Then add an output to `manifest.yml`, in both the `outputs` section of the
-`workflow_call` trigger and the `outputs` of the `set_versions` job:
+Then declare the version in `manifest.yml`, which needs two additions because a
+reusable workflow's outputs have to be threaded up from the step that sets them,
+through the job, to the `workflow_call` trigger. Add an entry under
+`on.workflow_call.outputs`:
 
 ```yaml
 DIFFUTILS_VERSION:
@@ -151,12 +201,26 @@ DIFFUTILS_VERSION:
     value: ${{ jobs.set_versions.outputs.output18 }}
 ```
 
+and a matching one under `jobs.set_versions.outputs`:
+
 ```yaml
     output18: ${{ steps.step1.outputs.DIFFUTILS_VERSION }}
 ```
 
-A GitHub output named `uppercase($name)_VERSION` is then available to any
-workflow that calls `manifest.yml`.
+The `outputN` names are arbitrary plumbing and carry no meaning beyond being
+unique; pick the next free number, which today means `output19`, since
+`manifest.json` has 18 packages and `manifest.yml` currently runs from `output1`
+to `output18`. What actually does the matching is the name: the `Set versions`
+step iterates over the packages and writes `uppercase($name)_VERSION=$version`
+for each, so the step output is keyed by the package name from `manifest.json`
+and must be spelled the same way on both lines above.
+
+Any workflow that calls `manifest.yml` can then read
+`needs.get-versions.outputs.DIFFUTILS_VERSION`.
+
+Finally, write the leaf workflow itself as `<package>-<platform>.yml` and add it
+to the appropriate orchestrator. Check the call-tree arithmetic above first if
+the platform is Windows, because that tree has no headroom left.
 
 ## Using these workflows from elsewhere
 
@@ -165,47 +229,64 @@ to provide your own `manifest.json`.
 
 ## PostgreSQL build configuration
 
-The macOS PostgreSQL builds are configured with `--with-openssl`,
-`--with-gssapi`, `--with-zstd`, `--with-lz4` and `--without-icu`. The two
-compression options are new relative to the Jenkins jobs, which had neither,
-and they close
+### macOS
+
+Configured with `--with-openssl`, `--with-gssapi`, `--with-zstd`, `--with-lz4`
+and `--without-icu`, against the OpenSSL, MIT Kerberos, zstd and lz4 trees built
+by the other four macOS workflows.
+
+The two compression options are new relative to the Jenkins jobs, which had
+neither, and they close
 [pgadmin-org/pgadmin4#9425](https://github.com/pgadmin-org/pgadmin4/issues/9425),
-where macOS users could not restore a zstd-compressed dump that Windows users
-could. `--with-zstd` only exists from PostgreSQL 15 onwards, so it is omitted
-on 14.
+where a macOS user could not restore a zstd-compressed dump that a Windows user
+could produce without trouble. `--with-zstd` only exists from PostgreSQL 15
+onwards, so it is omitted on 14 and that branch gets lz4 support alone.
 
 `make check` is not run on macOS. It builds a temporary install and relies on
 `DYLD_LIBRARY_PATH` to point the new binaries at the matching libpq, but System
 Integrity Protection strips every `DYLD_*` variable from a protected process's
 environment, so that libpq is never found. It appeared to pass under Jenkins
 only because earlier runs had left a libpq behind in the real installation
-directory for the binaries to fall back on. The workflows install first and then
-run `make installcheck` against a server started from the installed tree, whose
+directory for the binaries to fall back on. The workflow installs first and then
+runs `make installcheck` against a server started from the installed tree, whose
 binaries resolve their libraries through absolute `install_name` references and
 need no `DYLD_*` at all.
 
 MIT Kerberos is likewise built without running its own `make check`; the reasons
 are in a comment in `krb5-macos.yml`.
 
-## Windows GSSAPI
+### Windows
 
-Currently supported versions of PostgreSQL should build, and all dependencies
-are included automatically *except* for MIT Kerberos on the older Windows
-branches; see
+PostgreSQL 17 and above are built with Meson, and 16 and below with the older
+MSVC scripts, since that is where upstream moved.
+
+GSSAPI is enabled, and MIT Kerberos is built and bundled like any other
+dependency, but only from PostgreSQL 18 onwards. Building libpq on Windows with
+both OpenSSL and GSSAPI turned on fails to compile on the older branches,
+because `<wincrypt.h>` defines `X509_NAME` and clobbers OpenSSL's typedef;
+upstream fixed that with the commit adding `src/include/libpq/pg-gssapi.h`,
+which is in 18 and master but was not back-patched. PostgreSQL 17 and earlier
+are therefore built with GSSAPI disabled, and the `postgresql-dev-windows.yml`
+build of master has it enabled unconditionally. See
 [this thread](https://www.postgresql.org/message-id/CA%2BOCxoxwsgi8QdzN8A0OPGuGfu_1vEW3ufVBnbwd3gfawVpsXw%40mail.gmail.com)
 for the background.
 
-## TODO
+## Not built here
 
-The following dependencies are yet to be completed on Windows:
+Perl, Python and TCL are not built or pinned by this repository on either
+platform, so PL/Perl, PL/Python and PL/Tcl are not part of what these workflows
+supply. On Windows the pre-18 MSVC builds set them explicitly to `undef`. Adding
+them would mean a workflow each, and on Windows there is no room left in the
+orchestrator's call tree.
 
-* Perl
-* Python
-* TCL
+Bonjour, LLVM and readline are not configured on either platform either, though
+the situation differs between them. Bonjour and readline are Windows problems
+that largely evaporate on macOS, where Bonjour is native and libedit ships with
+the system; neither is currently requested by the macOS `configure` line. LLVM,
+and so JIT compilation, is absent from both.
 
-The following have not been supported on Windows but potentially could be in
-the future under Meson:
-
-* Bonjour
-* LLVM
-* Readline (or libedit, as it is not GPL)
+ICU is not a gap so much as a deliberate difference. The Windows side builds it
+and links against it, named explicitly in `config.pl` for the MSVC builds and
+picked up through pkg-config for the Meson ones, and ships the ICU DLLs
+alongside the binaries; the macOS build passes `--without-icu` and does not
+build it at all.

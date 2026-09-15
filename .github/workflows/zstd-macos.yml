@@ -47,10 +47,18 @@ jobs:
               -o "zstd-${ZSTD_VERSION}.tar.gz"
           tar zxf "zstd-${ZSTD_VERSION}.tar.gz"
 
+      # prefix has to be given to the build and not just to the install. zstd
+      # derives the dylib's -install_name from LIBDIR, which defaults to
+      # $(prefix)/lib with prefix defaulting to /usr/local, and that name is
+      # baked in when the library is linked. Passing prefix only to `make
+      # install` therefore produces a correctly placed libzstd that still
+      # announces itself as /usr/local/lib/libzstd.1.dylib, which is both
+      # missing on the target machine and, on an Intel Mac with Homebrew, an
+      # invitation to load somebody else's zstd instead.
       - name: Build
         run: |
           cd "zstd-${ZSTD_VERSION}"
-          make -j"$(sysctl -n hw.ncpu)"
+          make -j"$(sysctl -n hw.ncpu)" prefix="${PGBUILD_PREFIX}/zstd"
 
       - name: Install
         run: |
