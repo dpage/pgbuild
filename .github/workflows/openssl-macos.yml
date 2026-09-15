@@ -12,6 +12,13 @@ env:
   # build machine; pinning it here makes the supported floor explicit and
   # independent of the runner image.
   MACOSX_DEPLOYMENT_TARGET: '14.0'
+  # Reserve space in the Mach-O headers for longer install names than the
+  # ones linked in. Consumers relocate these libraries into their own bundles
+  # and rewrite the references with install_name_tool, and an @loader_path
+  # path is longer than the /opt/pgbuild one it replaces. Without the padding
+  # the rewrite fails outright with "larger updated load commands do not fit",
+  # which is what happened to pg_restore in pgAdmin's appbundle build.
+  LDFLAGS: '-Wl,-headerpad_max_install_names'
   PGBUILD_PREFIX: /opt/pgbuild
 
 jobs:
