@@ -124,8 +124,8 @@ is named `<package>-<platform>.yml`, giving `openssl-windows.yml`,
 | Workflow | What it does |
 |----------|--------------|
 | `build-all.yml` | Convenience dispatcher; starts both orchestrators and returns |
-| `build-all-windows.yml` | Nightly Windows DAG, calling the 19 Windows leaves in dependency order |
-| `build-all-macos.yml` | Nightly macOS DAG, calling the 5 macOS leaves in dependency order |
+| `build-all-windows.yml` | Windows DAG, calling the 19 Windows leaves in dependency order |
+| `build-all-macos.yml` | macOS DAG, calling the 5 macOS leaves in dependency order |
 | `manifest.yml` | Reusable workflow that reads pinned versions out of `manifest.json` |
 | `<package>-windows.yml` | One Windows package |
 | `<package>-macos.yml` | One macOS package, built for both architectures |
@@ -232,8 +232,9 @@ informational: changing them changes what ships.
 
 ## Automation
 
-The two orchestrators run nightly on a schedule, Windows at 00:00 UTC and macOS
-at 02:00 UTC. Each is a single-run DAG that builds its whole tree in dependency
+The two orchestrators run when something that determines their output changes,
+which means a push touching `manifest.json`, `manifest.yml` or one of that
+platform's workflows. Each is a single-run DAG that builds its whole tree in dependency
 order within one run, which is what lets a downstream job consume an upstream
 job's artifact directly. The individual leaf workflows have no cron of their
 own; they are triggered by the orchestrator, or dispatched by hand.
@@ -243,14 +244,29 @@ dependency artifact from its own run falls back to downloading that
 dependency's rolling release instead, which is what makes a standalone dispatch
 work at all.
 
-The point of running nightly is currency rather than survival. Release assets do
-not expire: `dpage/winpgbuild` still serves its `postgresql-13-latest` asset,
-published in January 2026, for a PostgreSQL major version the manifest stopped
-building some time ago. What does expire is the Actions artifacts the jobs pass
-between each other, which this repository retains for 90 days, that being
-GitHub's maximum. So a nightly rebuild is about picking up upstream minor
-releases and security fixes promptly, and about knowing that the build still
-works, rather than about stopping the published assets from vanishing.
+They also run weekly, Windows at 00:00 UTC on Sundays and macOS at 02:00, but
+that is a canary rather than the way builds get published. Rebuilding unchanged
+sources tells us one thing, which is that the build still works; upstream
+tarballs move, runner images change and toolchains update underneath us, and
+finding that out within a week beats finding out during a release.
+
+It used to be nightly, from when the assets were Actions artifacts that aged
+out. They are releases now, and releases do not expire: `dpage/winpgbuild`
+still serves its `postgresql-13-latest` asset, published in January 2026, for a
+PostgreSQL major version the manifest stopped building long ago. Nor does a
+rebuild pick up upstream releases, every version in the manifest being an exact
+pin that somebody has to edit. What a nightly did instead was republish thirty
+`-latest` assets every night from identical sources, so the content behind a
+URL changed daily whilst the source it came from had not, which is a poor
+property for anything pinning those URLs, pgAdmin's build among them.
+
+`postgresql-dev-windows.yml` is the exception and keeps a nightly of its own,
+at 01:00 UTC. Its manifest version is `master` rather than a number, so it
+genuinely is a different build every day, and a weekly one would be a week
+stale.
+
+The Actions artifacts the jobs pass between each other still expire after 90
+days, GitHub's maximum, but those are internal to a run.
 
 ## Version information
 

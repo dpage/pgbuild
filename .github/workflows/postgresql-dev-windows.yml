@@ -3,6 +3,13 @@ name: Build PostgreSQL (Dev) (Windows)
 on:
   workflow_dispatch:
   workflow_call:
+
+  # The one package whose source moves without anybody editing the manifest:
+  # its version is "master", so it is a different build every day. Everything
+  # else is pinned to an exact version and is rebuilt when that changes, which
+  # is why the orchestrators no longer run nightly.
+  schedule:
+    - cron: "00 01 * * *"
     
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'

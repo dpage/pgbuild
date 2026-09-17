@@ -15,8 +15,27 @@ name: Build All (Windows)
 
 on:
   workflow_dispatch:
+
+  # Versions are pinned in manifest.json and bumped by hand, so a rebuild is
+  # worth doing when something that determines the output changes: a version,
+  # or the workflow that does the building. Rebuilding unchanged sources on a
+  # timer republishes every -latest asset for no reason, which means anyone
+  # pinning those URLs, pgAdmin's own build included, silently gets different
+  # binaries from one day to the next.
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'manifest.json'
+      - '.github/workflows/manifest.yml'
+      - '.github/workflows/*-windows.yml'
+
+  # Weekly, and not as the way builds get published: that is what the triggers
+  # above are for. This is a canary. Rebuilding unchanged sources proves the
+  # build still works, which is the one thing it can tell us, and upstream
+  # tarballs move, runner images change and toolchains update underneath us.
+  # Finding that out within a week beats finding out during a release.
   schedule:
-    - cron: "00 00 * * *"
+    - cron: "00 00 * * 0"
 
 jobs:
   # Tier 0 — no artifact dependencies.
