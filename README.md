@@ -31,14 +31,16 @@ mean anything.
 |----------|--------|
 | Build All (Windows) | [![Build All (Windows)](https://github.com/pgadmin-org/pgbuild/actions/workflows/build-all-windows.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/build-all-windows.yml) |
 | Build All (macOS) | [![Build All (macOS)](https://github.com/pgadmin-org/pgbuild/actions/workflows/build-all-macos.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/build-all-macos.yml) |
-| Set package versions | [![Set package versions](https://github.com/pgadmin-org/pgbuild/actions/workflows/manifest.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/manifest.yml) |
 
-The per-package workflows deliberately carry no badges. Each is called by its
-orchestrator rather than run in its own right, and GitHub attributes a
-`workflow_call` run to the caller, so a package badge shows either "no status"
-or, worse, a stale green from whenever somebody last dispatched it by hand.
-Either way it says nothing about last night's build. The badges above cover
-them: when a package fails, its orchestrator goes red.
+Nothing else here carries a badge, deliberately. Every other workflow is
+called rather than run in its own right, and GitHub attributes a
+`workflow_call` run to the caller, so their badges show either "no status" or,
+worse, a stale green from whenever somebody last dispatched one by hand.
+Either way it says nothing about last night's build. `manifest.yml`, which
+supplies the versions to all of them, has no trigger but `workflow_call` at
+all, so its badge could never be anything but grey.
+
+The two above cover the lot: when a package fails, its orchestrator goes red.
 
 ## What gets built
 
