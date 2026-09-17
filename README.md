@@ -22,30 +22,55 @@ own upstream licence, and redistributing them means complying with those rather
 than with the licence above. Every package records its upstream licence in
 [manifest.json](manifest.json), as a `licence` URL pointing at the canonical
 licence text and an `spdx_license` expression naming it.
-
 ## Build status
+
+These are the workflows that run on a schedule, so these are the badges that
+mean anything.
+
+| Workflow | Status |
+|----------|--------|
+| Build All (Windows) | [![Build All (Windows)](https://github.com/pgadmin-org/pgbuild/actions/workflows/build-all-windows.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/build-all-windows.yml) |
+| Build All (macOS) | [![Build All (macOS)](https://github.com/pgadmin-org/pgbuild/actions/workflows/build-all-macos.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/build-all-macos.yml) |
+| Set package versions | [![Set package versions](https://github.com/pgadmin-org/pgbuild/actions/workflows/manifest.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/manifest.yml) |
+
+The per-package workflows deliberately carry no badges. Each is called by its
+orchestrator rather than run in its own right, and GitHub attributes a
+`workflow_call` run to the caller, so a package badge shows either "no status"
+or, worse, a stale green from whenever somebody last dispatched it by hand.
+Either way it says nothing about last night's build. The badges above cover
+them: when a package fails, its orchestrator goes red.
+
+## What gets built
+
+The Windows side builds more than pgAdmin itself needs, on the principle that
+if we are building PostgreSQL's dependencies anyway then the results may as
+well be available to anyone else who wants them. macOS is expected to catch
+up, so a "not yet built" below is a gap rather than a decision.
 
 | Package | Windows | macOS |
 |---------|---------|-------|
-| **Everything** | [![Build All (Windows)](https://github.com/pgadmin-org/pgbuild/actions/workflows/build-all-windows.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/build-all-windows.yml) | [![Build All (macOS)](https://github.com/pgadmin-org/pgbuild/actions/workflows/build-all-macos.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/build-all-macos.yml) |
-| PostgreSQL | [![Build PostgreSQL (Windows)](https://github.com/pgadmin-org/pgbuild/actions/workflows/postgresql-windows.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/postgresql-windows.yml) | [![Build PostgreSQL (macOS)](https://github.com/pgadmin-org/pgbuild/actions/workflows/postgresql-macos.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/postgresql-macos.yml) |
-| PostgreSQL (dev) | [![Build PostgreSQL (Dev) (Windows)](https://github.com/pgadmin-org/pgbuild/actions/workflows/postgresql-dev-windows.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/postgresql-dev-windows.yml) | not built |
-| OpenSSL | [![Build OpenSSL (Windows)](https://github.com/pgadmin-org/pgbuild/actions/workflows/openssl-windows.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/openssl-windows.yml) | [![Build OpenSSL (macOS)](https://github.com/pgadmin-org/pgbuild/actions/workflows/openssl-macos.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/openssl-macos.yml) |
-| MIT Kerberos | [![Build KRB5 (Windows)](https://github.com/pgadmin-org/pgbuild/actions/workflows/krb5-windows.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/krb5-windows.yml) | [![Build KRB5 (macOS)](https://github.com/pgadmin-org/pgbuild/actions/workflows/krb5-macos.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/krb5-macos.yml) |
-| zstd | [![Build zstd (Windows)](https://github.com/pgadmin-org/pgbuild/actions/workflows/zstd-windows.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/zstd-windows.yml) | [![Build zstd (macOS)](https://github.com/pgadmin-org/pgbuild/actions/workflows/zstd-macos.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/zstd-macos.yml) |
-| lz4 | [![Build lz4 (Windows)](https://github.com/pgadmin-org/pgbuild/actions/workflows/lz4-windows.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/lz4-windows.yml) | [![Build lz4 (macOS)](https://github.com/pgadmin-org/pgbuild/actions/workflows/lz4-macos.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/lz4-macos.yml) |
-| zlib | [![Build zlib (Windows)](https://github.com/pgadmin-org/pgbuild/actions/workflows/zlib-windows.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/zlib-windows.yml) | system |
-| ICU | [![Build ICU (Windows)](https://github.com/pgadmin-org/pgbuild/actions/workflows/icu-windows.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/icu-windows.yml) | not used |
-| gettext | [![Build gettext (Windows)](https://github.com/pgadmin-org/pgbuild/actions/workflows/gettext-windows.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/gettext-windows.yml) | not built |
-| libiconv | [![Build libiconv (Windows)](https://github.com/pgadmin-org/pgbuild/actions/workflows/libiconv-windows.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/libiconv-windows.yml) | system |
-| libxml2 | [![Build libxml2 (Windows)](https://github.com/pgadmin-org/pgbuild/actions/workflows/libxml2-windows.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/libxml2-windows.yml) | not built |
-| libxslt | [![Build libxslt (Windows)](https://github.com/pgadmin-org/pgbuild/actions/workflows/libxslt-windows.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/libxslt-windows.yml) | not built |
-| ossp-uuid | [![Build ossp-uuid (Windows)](https://github.com/pgadmin-org/pgbuild/actions/workflows/ossp-uuid-windows.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/ossp-uuid-windows.yml) | not built |
-| Dependency bundle | [![Bundle dependencies (Windows)](https://github.com/pgadmin-org/pgbuild/actions/workflows/bundle-deps-windows.yml/badge.svg)](https://github.com/pgadmin-org/pgbuild/actions/workflows/bundle-deps-windows.yml) | not needed |
+| PostgreSQL | [`postgresql-windows.yml`](.github/workflows/postgresql-windows.yml) | [`postgresql-macos.yml`](.github/workflows/postgresql-macos.yml) |
+| PostgreSQL (dev) | [`postgresql-dev-windows.yml`](.github/workflows/postgresql-dev-windows.yml) | not yet built |
+| OpenSSL | [`openssl-windows.yml`](.github/workflows/openssl-windows.yml) | [`openssl-macos.yml`](.github/workflows/openssl-macos.yml) |
+| MIT Kerberos | [`krb5-windows.yml`](.github/workflows/krb5-windows.yml) | [`krb5-macos.yml`](.github/workflows/krb5-macos.yml) |
+| zstd | [`zstd-windows.yml`](.github/workflows/zstd-windows.yml) | [`zstd-macos.yml`](.github/workflows/zstd-macos.yml) |
+| lz4 | [`lz4-windows.yml`](.github/workflows/lz4-windows.yml) | [`lz4-macos.yml`](.github/workflows/lz4-macos.yml) |
+| zlib | [`zlib-windows.yml`](.github/workflows/zlib-windows.yml) | system |
+| ICU | [`icu-windows.yml`](.github/workflows/icu-windows.yml) | system |
+| gettext | [`gettext-windows.yml`](.github/workflows/gettext-windows.yml) | not yet built |
+| libiconv | [`libiconv-windows.yml`](.github/workflows/libiconv-windows.yml) | system |
+| libxml2 | [`libxml2-windows.yml`](.github/workflows/libxml2-windows.yml) | not yet built |
+| libxslt | [`libxslt-windows.yml`](.github/workflows/libxslt-windows.yml) | not yet built |
+| ossp-uuid | [`ossp-uuid-windows.yml`](.github/workflows/ossp-uuid-windows.yml) | not yet built |
+| Dependency bundle | [`bundle-deps-windows.yml`](.github/workflows/bundle-deps-windows.yml) | not yet built |
+| diffutils | [`diffutils-windows.yml`](.github/workflows/diffutils-windows.yml) | not yet built |
+| Meson | [`meson-windows.yml`](.github/workflows/meson-windows.yml) | not yet built |
+| Ninja | [`ninja-windows.yml`](.github/workflows/ninja-windows.yml) | not yet built |
+| pkgconf | [`pkgconf-windows.yml`](.github/workflows/pkgconf-windows.yml) | not yet built |
+| winflexbison | [`winflexbison-windows.yml`](.github/workflows/winflexbison-windows.yml) | not yet built |
 
-The five Windows build-tool workflows are left out of the table:
-`diffutils-windows.yml`, `meson-windows.yml`, `ninja-windows.yml`,
-`pkgconf-windows.yml` and `winflexbison-windows.yml`.
+"system" means macOS ships a usable copy and PostgreSQL links that, so there
+is nothing for us to build.
 
 ## Layout
 
