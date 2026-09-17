@@ -49,10 +49,23 @@ if we are building PostgreSQL's dependencies anyway then the results may as
 well be available to anyone else who wants them. macOS is expected to catch
 up, so a "not yet built" below is a gap rather than a decision.
 
+### PostgreSQL
+
+Complete builds, linked against everything below rather than against
+whatever the build machine happened to have.
+
 | Package | Windows | macOS |
 |---------|---------|-------|
 | PostgreSQL | [`postgresql-windows.yml`](.github/workflows/postgresql-windows.yml) | [`postgresql-macos.yml`](.github/workflows/postgresql-macos.yml) |
 | PostgreSQL (dev) | [`postgresql-dev-windows.yml`](.github/workflows/postgresql-dev-windows.yml) | not yet built |
+
+### Libraries
+
+The dependencies PostgreSQL links, built here so that the result is the
+same everywhere and does not vary with the machine.
+
+| Package | Windows | macOS |
+|---------|---------|-------|
 | OpenSSL | [`openssl-windows.yml`](.github/workflows/openssl-windows.yml) | [`openssl-macos.yml`](.github/workflows/openssl-macos.yml) |
 | MIT Kerberos | [`krb5-windows.yml`](.github/workflows/krb5-windows.yml) | [`krb5-macos.yml`](.github/workflows/krb5-macos.yml) |
 | zstd | [`zstd-windows.yml`](.github/workflows/zstd-windows.yml) | [`zstd-macos.yml`](.github/workflows/zstd-macos.yml) |
@@ -64,12 +77,30 @@ up, so a "not yet built" below is a gap rather than a decision.
 | libxml2 | [`libxml2-windows.yml`](.github/workflows/libxml2-windows.yml) | not yet built |
 | libxslt | [`libxslt-windows.yml`](.github/workflows/libxslt-windows.yml) | not yet built |
 | ossp-uuid | [`ossp-uuid-windows.yml`](.github/workflows/ossp-uuid-windows.yml) | not yet built |
-| Dependency bundle | [`bundle-deps-windows.yml`](.github/workflows/bundle-deps-windows.yml) | not yet built |
+
+### Build tools
+
+Needed to build the libraries on Windows, where they are not otherwise to
+hand. Mostly repackaged pre-built utilities rather than compiled here.
+winflexbison is the exception to the catch-up: it is a Windows port of flex
+and bison, so there is nothing to port on macOS.
+
+| Package | Windows | macOS |
+|---------|---------|-------|
 | diffutils | [`diffutils-windows.yml`](.github/workflows/diffutils-windows.yml) | not yet built |
 | Meson | [`meson-windows.yml`](.github/workflows/meson-windows.yml) | not yet built |
 | Ninja | [`ninja-windows.yml`](.github/workflows/ninja-windows.yml) | not yet built |
 | pkgconf | [`pkgconf-windows.yml`](.github/workflows/pkgconf-windows.yml) | not yet built |
-| winflexbison | [`winflexbison-windows.yml`](.github/workflows/winflexbison-windows.yml) | not yet built |
+| winflexbison | [`winflexbison-windows.yml`](.github/workflows/winflexbison-windows.yml) | Windows only |
+
+### Bundles
+
+One archive carrying the libraries together, for anyone who would rather
+fetch a single file than assemble one.
+
+| Package | Windows | macOS |
+|---------|---------|-------|
+| Dependency bundle | [`bundle-deps-windows.yml`](.github/workflows/bundle-deps-windows.yml) | not yet built |
 
 "system" means the copy in macOS itself, in `/usr/lib`, which PostgreSQL links
 directly. It does not mean Homebrew. Nothing here depends on Homebrew being
