@@ -1,0 +1,188 @@
+name: Build ICU (macOS)
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  # pgAdmin supports macOS 14 (Sonoma) and above; see openssl-macos.yml for
+  # why this is pinned rather than inherited from the runner's SDK.
+  MACOSX_DEPLOYMENT_TARGET: '14.0'
+  # Reserve space in the Mach-O headers for longer install names than the
+  # ones linked in. Consumers relocate these libraries into their own bundles
+  # and rewrite the references with install_name_tool, and an @loader_path
+  # path is longer than the /opt/pgbuild one it replaces. Without the padding
+  # the rewrite fails outright with "larger updated load commands do not fit",
+  # which is what happened to pg_restore in pgAdmin's appbundle build.
+  LDFLAGS: '-Wl,-headerpad_max_install_names'
+  PGBUILD_PREFIX: /opt/pgbuild
+
+jobs:
+  get-versions:
+    uses: ./.github/workflows/manifest.yml
+    with:
+      config-path: manifest.json
+
+  build-icu:
+    needs: get-versions
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+
+    runs-on: ${{ matrix.runner }}
+
+    env:
+      ICU_VERSION: ${{ needs.get-versions.outputs.ICU_VERSION }}
+
+    steps:
+      - name: Prepare install prefix
+        run: |
+          sudo mkdir -p "${PGBUILD_PREFIX}"
+          sudo chown -R "$(id -u):$(id -g)" "${PGBUILD_PREFIX}"
+
+      # The tarball rather than the zip the Windows leaf takes from the same
+      # release, because it keeps the executable bit on configure and
+      # runConfigureICU.
+      - name: Download
+        run: |
+          curl -fL --retry 5 --retry-delay 5 --retry-all-errors --connect-timeout 30 \
+              "https://github.com/unicode-org/icu/releases/download/release-${ICU_VERSION}/icu4c-${ICU_VERSION}-sources.tgz" \
+              -o "icu4c-${ICU_VERSION}-sources.tgz"
+          tar zxf "icu4c-${ICU_VERSION}-sources.tgz"
+
+      # --enable-rpath is what makes these dylibs usable anywhere else. ICU's
+      # Darwin rules otherwise set each library's install_name to the bare leaf
+      # name, so anything linking against them records a load command with no
+      # directory in it and cannot find the library at run time without
+      # DYLD_LIBRARY_PATH being set, which System Integrity Protection strips
+      # from a protected process anyway. With it, the install name is the
+      # absolute path under the prefix, which is what every other package here
+      # produces and what consumers rewrite with install_name_tool.
+      #
+      # The test and sample programs are a large part of the build and nothing
+      # here runs them, so they are not built.
+      - name: Configure
+        run: |
+          cd icu/source
+          ./runConfigureICU MacOSX \
+              --prefix="${PGBUILD_PREFIX}/icu" \
+              --enable-rpath \
+              --disable-samples \
+              --disable-tests
+
+      - name: Build
+        run: |
+          cd icu/source
+          make -j"$(sysctl -n hw.ncpu)"
+
+      - name: Install
+        run: |
+          cd icu/source
+          make install
+
+      - name: Checkout SPDX action
+        uses: actions/checkout@v6
+        with:
+          path: _src
+          sparse-checkout: |
+            .github/actions/generate-spdx-posix
+          sparse-checkout-cone-mode: false
+
+      - name: Generate SPDX manifest
+        uses: ./_src/.github/actions/generate-spdx-posix
+        with:
+          package: icu
+          install-dir: ${{ env.PGBUILD_PREFIX }}/icu
+
+      - name: Package
+        run: |
+          tar -czf "${RUNNER_TEMP}/icu-macos-${{ matrix.arch }}-latest.tar.gz" \
+              -C "${PGBUILD_PREFIX}" icu
+
+      - name: Upload Binaries
+        uses: actions/upload-artifact@v7
+        with:
+          if-no-files-found: error
+          name: icu-${{ env.ICU_VERSION }}-macos-${{ matrix.arch }}
+          path: ${{ runner.temp }}/icu-macos-${{ matrix.arch }}-latest.tar.gz
+
+      # Refreshing a rolling release means replacing its asset, not tearing the
+      # release down and building a new one. Creating a release is the
+      # expensive operation, and the one that has repeatedly come back as a
+      # bare 403 "Resource not accessible by integration" under load, for
+      # twenty minutes at a stretch, on a token that the same job had just used
+      # to delete a release successfully and that logged Contents: write.
+      # Whatever GitHub-side throttle that is, the way not to meet it is not to
+      # create a release every night: the tag is created once, and from then on
+      # each build moves it to the new commit and clobbers the asset in place.
+      # That also keeps the release's identity and URL intact between builds,
+      # which deleting and recreating did not.
+      - name: Publish Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: icu-macos-${{ matrix.arch }}-latest
+          TITLE: ICU (macOS ${{ matrix.arch }})
+          ASSET: ${{ runner.temp }}/icu-macos-${{ matrix.arch }}-latest.tar.gz
+        run: |
+          set -euo pipefail
+
+          # True only when the release exists and is not a draft, since a draft
+          # has no tag behind it and so cannot be downloaded by tag, however
+          # healthy it looks in the web interface.
+          is_published() {
+              [ "$(gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" \
+                      --json isDraft --jq .isDraft 2>/dev/null)" = "false" ]
+          }
+
+          publish() {
+              if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" \
+                      >/dev/null 2>&1; then
+                  # Move the rolling tag onto the commit that produced these
+                  # assets. Allowed to fail: a release left as a draft by an
+                  # earlier attempt has no tag yet, and the edit below makes
+                  # one.
+                  gh api -X PATCH \
+                      "repos/${GITHUB_REPOSITORY}/git/refs/tags/${TAG}" \
+                      -f sha="${GITHUB_SHA}" -F force=true >/dev/null 2>&1 \
+                      || true
+                  gh release edit "${TAG}" --repo "${GITHUB_REPOSITORY}" \
+                      --title "${TITLE}" --prerelease --draft=false \
+                      >/dev/null &&
+                  gh release upload "${TAG}" "${ASSET}" \
+                      --repo "${GITHUB_REPOSITORY}" --clobber
+              else
+                  gh release create "${TAG}" "${ASSET}" \
+                      --repo "${GITHUB_REPOSITORY}" \
+                      --target "${GITHUB_SHA}" \
+                      --title "${TITLE}" \
+                      --prerelease
+              fi
+          }
+
+          # The back-off is deliberately generous, because throwing away a
+          # thirty-minute build that has already passed its tests, over an API
+          # call that may well work a few minutes later, would be absurd.
+          for attempt in 1 2 3 4 5 6 7 8; do
+              if publish && is_published; then
+                  echo "Published ${TAG}"
+                  exit 0
+              fi
+
+              delay=$((attempt * 60))
+              if [ "${delay}" -gt 300 ]; then
+                  delay=300
+              fi
+              echo "Publishing ${TAG} failed on attempt ${attempt};" \
+                   "retrying in ${delay}s"
+              sleep "${delay}"
+          done
+
+          echo "Giving up on ${TAG} after 8 attempts" >&2
+          exit 1

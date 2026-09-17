@@ -1,0 +1,186 @@
+name: Build libxml2 (macOS)
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  # pgAdmin supports macOS 14 (Sonoma) and above; see openssl-macos.yml for
+  # why this is pinned rather than inherited from the runner's SDK.
+  MACOSX_DEPLOYMENT_TARGET: '14.0'
+  # Reserve space in the Mach-O headers for longer install names than the
+  # ones linked in. Consumers relocate these libraries into their own bundles
+  # and rewrite the references with install_name_tool, and an @loader_path
+  # path is longer than the /opt/pgbuild one it replaces. Without the padding
+  # the rewrite fails outright with "larger updated load commands do not fit",
+  # which is what happened to pg_restore in pgAdmin's appbundle build.
+  LDFLAGS: '-Wl,-headerpad_max_install_names'
+  PGBUILD_PREFIX: /opt/pgbuild
+
+jobs:
+  get-versions:
+    uses: ./.github/workflows/manifest.yml
+    with:
+      config-path: manifest.json
+
+  build-libxml2:
+    needs: get-versions
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+
+    runs-on: ${{ matrix.runner }}
+
+    env:
+      LIBXML2_VERSION: ${{ needs.get-versions.outputs.LIBXML2_VERSION }}
+
+    steps:
+      - name: Prepare install prefix
+        run: |
+          sudo mkdir -p "${PGBUILD_PREFIX}"
+          sudo chown -R "$(id -u):$(id -g)" "${PGBUILD_PREFIX}"
+
+      # The GNOME release tarball rather than the GitLab archive of the tag
+      # that the Windows leaf takes. The archive is a source snapshot with no
+      # generated configure in it, which CMake does not mind but an autotools
+      # build does, and regenerating it would mean autoconf, automake and
+      # libtool, none of which macOS ships. Releases live in a directory named
+      # after the major and minor version, hence the trimmed copy below.
+      - name: Download
+        run: |
+          series="${LIBXML2_VERSION%.*}"
+          curl -fL --retry 5 --retry-delay 5 --retry-all-errors --connect-timeout 30 \
+              "https://download.gnome.org/sources/libxml2/${series}/libxml2-${LIBXML2_VERSION}.tar.xz" \
+              -o "libxml2-${LIBXML2_VERSION}.tar.xz"
+          tar xf "libxml2-${LIBXML2_VERSION}.tar.xz"
+
+      # zlib and iconv both come from macOS itself, in /usr/lib, so they are
+      # linked rather than built; zlib support is off by default in libxml2's
+      # configure and has to be asked for. The Python bindings are declined
+      # because they would be built against whichever Python the runner image
+      # happens to ship, and what is published here is a C library.
+      - name: Configure
+        run: |
+          cd "libxml2-${LIBXML2_VERSION}"
+          ./configure \
+              --prefix="${PGBUILD_PREFIX}/libxml2" \
+              --with-zlib \
+              --with-iconv \
+              --without-python
+
+      - name: Build
+        run: |
+          cd "libxml2-${LIBXML2_VERSION}"
+          make -j"$(sysctl -n hw.ncpu)"
+
+      - name: Install
+        run: |
+          cd "libxml2-${LIBXML2_VERSION}"
+          make install
+
+      - name: Checkout SPDX action
+        uses: actions/checkout@v6
+        with:
+          path: _src
+          sparse-checkout: |
+            .github/actions/generate-spdx-posix
+          sparse-checkout-cone-mode: false
+
+      - name: Generate SPDX manifest
+        uses: ./_src/.github/actions/generate-spdx-posix
+        with:
+          package: libxml2
+          install-dir: ${{ env.PGBUILD_PREFIX }}/libxml2
+
+      - name: Package
+        run: |
+          tar -czf "${RUNNER_TEMP}/libxml2-macos-${{ matrix.arch }}-latest.tar.gz" \
+              -C "${PGBUILD_PREFIX}" libxml2
+
+      - name: Upload Binaries
+        uses: actions/upload-artifact@v7
+        with:
+          if-no-files-found: error
+          name: libxml2-${{ env.LIBXML2_VERSION }}-macos-${{ matrix.arch }}
+          path: ${{ runner.temp }}/libxml2-macos-${{ matrix.arch }}-latest.tar.gz
+
+      # Refreshing a rolling release means replacing its asset, not tearing the
+      # release down and building a new one. Creating a release is the
+      # expensive operation, and the one that has repeatedly come back as a
+      # bare 403 "Resource not accessible by integration" under load, for
+      # twenty minutes at a stretch, on a token that the same job had just used
+      # to delete a release successfully and that logged Contents: write.
+      # Whatever GitHub-side throttle that is, the way not to meet it is not to
+      # create a release every night: the tag is created once, and from then on
+      # each build moves it to the new commit and clobbers the asset in place.
+      # That also keeps the release's identity and URL intact between builds,
+      # which deleting and recreating did not.
+      - name: Publish Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: libxml2-macos-${{ matrix.arch }}-latest
+          TITLE: libxml2 (macOS ${{ matrix.arch }})
+          ASSET: ${{ runner.temp }}/libxml2-macos-${{ matrix.arch }}-latest.tar.gz
+        run: |
+          set -euo pipefail
+
+          # True only when the release exists and is not a draft, since a draft
+          # has no tag behind it and so cannot be downloaded by tag, however
+          # healthy it looks in the web interface.
+          is_published() {
+              [ "$(gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" \
+                      --json isDraft --jq .isDraft 2>/dev/null)" = "false" ]
+          }
+
+          publish() {
+              if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" \
+                      >/dev/null 2>&1; then
+                  # Move the rolling tag onto the commit that produced these
+                  # assets. Allowed to fail: a release left as a draft by an
+                  # earlier attempt has no tag yet, and the edit below makes
+                  # one.
+                  gh api -X PATCH \
+                      "repos/${GITHUB_REPOSITORY}/git/refs/tags/${TAG}" \
+                      -f sha="${GITHUB_SHA}" -F force=true >/dev/null 2>&1 \
+                      || true
+                  gh release edit "${TAG}" --repo "${GITHUB_REPOSITORY}" \
+                      --title "${TITLE}" --prerelease --draft=false \
+                      >/dev/null &&
+                  gh release upload "${TAG}" "${ASSET}" \
+                      --repo "${GITHUB_REPOSITORY}" --clobber
+              else
+                  gh release create "${TAG}" "${ASSET}" \
+                      --repo "${GITHUB_REPOSITORY}" \
+                      --target "${GITHUB_SHA}" \
+                      --title "${TITLE}" \
+                      --prerelease
+              fi
+          }
+
+          # The back-off is deliberately generous, because throwing away a
+          # thirty-minute build that has already passed its tests, over an API
+          # call that may well work a few minutes later, would be absurd.
+          for attempt in 1 2 3 4 5 6 7 8; do
+              if publish && is_published; then
+                  echo "Published ${TAG}"
+                  exit 0
+              fi
+
+              delay=$((attempt * 60))
+              if [ "${delay}" -gt 300 ]; then
+                  delay=300
+              fi
+              echo "Publishing ${TAG} failed on attempt ${attempt};" \
+                   "retrying in ${delay}s"
+              sleep "${delay}"
+          done
+
+          echo "Giving up on ${TAG} after 8 attempts" >&2
+          exit 1

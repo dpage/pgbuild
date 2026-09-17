@@ -5,7 +5,7 @@ name: Build All (macOS)
 # demand via workflow_dispatch / workflow_call.
 #
 # GitHub Actions limits a workflow to 20 unique reusable workflows in its full
-# call tree. This orchestrator uses 6 of them: the five macOS leaves plus
+# call tree. This orchestrator uses 11 of them: the ten macOS leaves plus
 # manifest.yml, which every leaf calls and which counts only once. The Windows
 # orchestrator is already at 20, which is precisely why the two platforms have
 # an orchestrator each rather than sharing one.
@@ -44,8 +44,23 @@ jobs:
     uses: ./.github/workflows/zstd-macos.yml
   lz4:
     uses: ./.github/workflows/lz4-macos.yml
+  icu:
+    uses: ./.github/workflows/icu-macos.yml
+  gettext:
+    uses: ./.github/workflows/gettext-macos.yml
+  ossp-uuid:
+    uses: ./.github/workflows/ossp-uuid-macos.yml
+  libxml2:
+    uses: ./.github/workflows/libxml2-macos.yml
 
   # Tier 1
+  libxslt:
+    needs: [libxml2]
+    uses: ./.github/workflows/libxslt-macos.yml
+
+  # Tier 2. PostgreSQL waits only on what its configure line actually asks
+  # for; gettext, libxml2, libxslt and ossp-uuid are published for their own
+  # sake rather than linked here.
   postgresql:
-    needs: [openssl, krb5, zstd, lz4]
+    needs: [openssl, krb5, zstd, lz4, icu]
     uses: ./.github/workflows/postgresql-macos.yml

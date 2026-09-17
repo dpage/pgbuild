@@ -40,6 +40,7 @@ jobs:
       KRB5_VERSION: ${{ needs.get-versions.outputs.KRB5_VERSION }}
       ZSTD_VERSION: ${{ needs.get-versions.outputs.ZSTD_VERSION }}
       LZ4_VERSION: ${{ needs.get-versions.outputs.LZ4_VERSION }}
+      ICU_VERSION: ${{ needs.get-versions.outputs.ICU_VERSION }}
       PG_VERSION: ${{ matrix.version }}
       ARCH: ${{ matrix.arch }}
 
@@ -83,6 +84,13 @@ jobs:
           name: lz4-${{ env.LZ4_VERSION }}-macos-${{ matrix.arch }}
           path: ${{ runner.temp }}/deps
 
+      - name: Download icu
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          name: icu-${{ env.ICU_VERSION }}-macos-${{ matrix.arch }}
+          path: ${{ runner.temp }}/deps
+
       # Anything the steps above could not supply is pulled from the rolling
       # per-package release instead, which is what a standalone dispatch of
       # this workflow always ends up doing.
@@ -90,7 +98,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          for pkg in openssl krb5 zstd lz4; do
+          for pkg in openssl krb5 zstd lz4 icu; do
               tarball="${pkg}-macos-${ARCH}-latest.tar.gz"
               if [ ! -f "${RUNNER_TEMP}/deps/${tarball}" ]; then
                   echo "Fetching ${tarball} from the ${pkg}-macos-${ARCH}-latest release"
@@ -103,7 +111,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          for pkg in openssl krb5 zstd lz4; do
+          for pkg in openssl krb5 zstd lz4 icu; do
               tar -xzf "${RUNNER_TEMP}/deps/${pkg}-macos-${ARCH}-latest.tar.gz" \
                   -C "${PGBUILD_PREFIX}"
           done
@@ -119,16 +127,16 @@ jobs:
         run: |
           cd "postgresql-${PG_VERSION}"
 
-          # PostgreSQL finds lz4 and zstd through pkg-config, and the runner
-          # image ships Homebrew copies of both. Without this, configure
-          # happily reports -I/opt/homebrew/opt/zstd/include ahead of our own
-          # include directory, so the build compiles against Homebrew's headers
-          # whilst linking our libraries, which is the sort of arrangement that
-          # works right up until the two versions diverge. PKG_CONFIG_PATH is
-          # searched before pkg-config's built-in directories, so putting our
-          # trees here makes it resolve to the libraries we actually built and
-          # ship.
-          export PKG_CONFIG_PATH="${PGBUILD_PREFIX}/zstd/lib/pkgconfig:${PGBUILD_PREFIX}/lz4/lib/pkgconfig:${PGBUILD_PREFIX}/openssl/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+          # PostgreSQL finds ICU, lz4 and zstd through pkg-config, and the
+          # runner image ships Homebrew copies of all three. Without this,
+          # configure happily reports -I/opt/homebrew/opt/zstd/include ahead of
+          # our own include directory, so the build compiles against Homebrew's
+          # headers whilst linking our libraries, which is the sort of
+          # arrangement that works right up until the two versions diverge.
+          # PKG_CONFIG_PATH is searched before pkg-config's built-in
+          # directories, so putting our trees here makes it resolve to the
+          # libraries we actually built and ship.
+          export PKG_CONFIG_PATH="${PGBUILD_PREFIX}/icu/lib/pkgconfig:${PGBUILD_PREFIX}/zstd/lib/pkgconfig:${PGBUILD_PREFIX}/lz4/lib/pkgconfig:${PGBUILD_PREFIX}/openssl/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
 
           # --with-zstd and --with-lz4 are both new relative to the Jenkins
           # macOS jobs this replaces, which had neither. Without them pg_dump
@@ -139,6 +147,13 @@ jobs:
           # --with-lz4 has existed since PostgreSQL 14, but --with-zstd only
           # arrived in 15, so it is omitted on older branches rather than
           # failing configure outright.
+          #
+          # --with-icu is new as well. The macOS build was configured
+          # --without-icu for as long as there was no ICU of ours to link, and
+          # linking whatever the machine happened to have was never the
+          # intention; icu-macos.yml now builds one, so it is linked like any
+          # other dependency. PostgreSQL locates ICU through pkg-config alone,
+          # which is why its pkgconfig directory goes on the path above.
           pg_major="${PG_VERSION%%.*}"
           zstd_arg="--with-zstd"
           if [ "${pg_major}" -lt 15 ]; then
@@ -152,9 +167,9 @@ jobs:
               --with-gssapi \
               ${zstd_arg} \
               --with-lz4 \
-              --with-includes="${PGBUILD_PREFIX}/openssl/include ${PGBUILD_PREFIX}/krb5/include ${PGBUILD_PREFIX}/zstd/include ${PGBUILD_PREFIX}/lz4/include" \
-              --with-libraries="${PGBUILD_PREFIX}/openssl/lib ${PGBUILD_PREFIX}/krb5/lib ${PGBUILD_PREFIX}/zstd/lib ${PGBUILD_PREFIX}/lz4/lib" \
-              --without-icu
+              --with-includes="${PGBUILD_PREFIX}/openssl/include ${PGBUILD_PREFIX}/krb5/include ${PGBUILD_PREFIX}/zstd/include ${PGBUILD_PREFIX}/lz4/include ${PGBUILD_PREFIX}/icu/include" \
+              --with-libraries="${PGBUILD_PREFIX}/openssl/lib ${PGBUILD_PREFIX}/krb5/lib ${PGBUILD_PREFIX}/zstd/lib ${PGBUILD_PREFIX}/lz4/lib ${PGBUILD_PREFIX}/icu/lib" \
+              --with-icu
 
       - name: Build
         run: |
@@ -228,7 +243,7 @@ jobs:
       - name: Copy dependency SPDX manifests
         run: |
           mkdir -p "${PGBUILD_PREFIX}/postgresql/MANIFESTS"
-          for pkg in openssl krb5 zstd lz4; do
+          for pkg in openssl krb5 zstd lz4 icu; do
               if [ -d "${PGBUILD_PREFIX}/${pkg}/MANIFESTS" ]; then
                   cp "${PGBUILD_PREFIX}/${pkg}/MANIFESTS"/*.spdx.json \
                      "${PGBUILD_PREFIX}/postgresql/MANIFESTS/"
