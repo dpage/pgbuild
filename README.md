@@ -56,7 +56,7 @@ up, so a "not yet built" below is a gap rather than a decision.
 | zstd | [`zstd-windows.yml`](.github/workflows/zstd-windows.yml) | [`zstd-macos.yml`](.github/workflows/zstd-macos.yml) |
 | lz4 | [`lz4-windows.yml`](.github/workflows/lz4-windows.yml) | [`lz4-macos.yml`](.github/workflows/lz4-macos.yml) |
 | zlib | [`zlib-windows.yml`](.github/workflows/zlib-windows.yml) | system |
-| ICU | [`icu-windows.yml`](.github/workflows/icu-windows.yml) | system |
+| ICU | [`icu-windows.yml`](.github/workflows/icu-windows.yml) | not yet built |
 | gettext | [`gettext-windows.yml`](.github/workflows/gettext-windows.yml) | not yet built |
 | libiconv | [`libiconv-windows.yml`](.github/workflows/libiconv-windows.yml) | system |
 | libxml2 | [`libxml2-windows.yml`](.github/workflows/libxml2-windows.yml) | not yet built |
@@ -69,8 +69,17 @@ up, so a "not yet built" below is a gap rather than a decision.
 | pkgconf | [`pkgconf-windows.yml`](.github/workflows/pkgconf-windows.yml) | not yet built |
 | winflexbison | [`winflexbison-windows.yml`](.github/workflows/winflexbison-windows.yml) | not yet built |
 
-"system" means macOS ships a usable copy and PostgreSQL links that, so there
-is nothing for us to build.
+"system" means the copy in macOS itself, in `/usr/lib`, which PostgreSQL links
+directly. It does not mean Homebrew. Nothing here depends on Homebrew being
+installed, deliberately: the point of publishing these builds is that they work
+for somebody using MacPorts or Fink, or nothing at all. The macOS PostgreSQL
+build goes further and puts its own include directories ahead of Homebrew's, so
+that a runner image which happens to ship Homebrew copies of zstd and lz4
+cannot quietly get them compiled in.
+
+ICU is the one to watch there: the macOS build currently configures
+`--without-icu`, so adding it means building our own and turning the flag
+round, not linking whatever the machine happens to have.
 
 ## Layout
 
