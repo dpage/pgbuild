@@ -4,6 +4,14 @@ on:
   workflow_dispatch:
   workflow_call:
 
+  # TEMPORARY, for proving this branch. workflow_dispatch offers no button for
+  # a workflow that is not on the default branch, and these are new, so a push
+  # trigger is the only way to run them before merging. Remove before merge.
+  push:
+    branches: [ "macos-libraries" ]
+    paths:
+      - '.github/workflows/icu-macos.yml'
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
   # pgAdmin supports macOS 14 (Sonoma) and above; see openssl-macos.yml for
