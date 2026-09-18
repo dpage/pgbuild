@@ -4,6 +4,13 @@ on:
   workflow_dispatch:
   workflow_call:
 
+  # TEMPORARY, as for the other new leaves; remove before merge. Added after
+  # libxml2 published, since a standalone run falls back to that release.
+  push:
+    branches: [ "macos-libraries" ]
+    paths:
+      - '.github/workflows/libxslt-macos.yml'
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
   # pgAdmin supports macOS 14 (Sonoma) and above; see openssl-macos.yml for
