@@ -48,12 +48,48 @@ jobs:
 
     env:
       GETTEXT_VERSION: ${{ needs.get-versions.outputs.GETTEXT_VERSION }}
+      LIBICONV_VERSION: ${{ needs.get-versions.outputs.LIBICONV_VERSION }}
+      ARCH: ${{ matrix.arch }}
 
     steps:
       - name: Prepare install prefix
         run: |
           sudo mkdir -p "${PGBUILD_PREFIX}"
           sudo chown -R "$(id -u):$(id -g)" "${PGBUILD_PREFIX}"
+          mkdir -p "${RUNNER_TEMP}/deps"
+
+      # When run via build-all-macos (workflow_call), libiconv is produced
+      # earlier in the same run, so this same-run lookup succeeds.
+      # continue-on-error lets a standalone dispatch, where no such artifact
+      # exists, fall through to the release fallback below instead of failing
+      # the job.
+      - name: Download libiconv
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          name: libiconv-${{ env.LIBICONV_VERSION }}-macos-${{ matrix.arch }}
+          path: ${{ runner.temp }}/deps
+
+      # Anything the step above could not supply is pulled from the rolling
+      # per-package release instead, which is what a standalone dispatch of
+      # this workflow always ends up doing.
+      - name: Download dependencies (release fallback)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tarball="libiconv-macos-${ARCH}-latest.tar.gz"
+          if [ ! -f "${RUNNER_TEMP}/deps/${tarball}" ]; then
+              echo "Fetching ${tarball} from the libiconv-macos-${ARCH}-latest release"
+              gh release download "libiconv-macos-${ARCH}-latest" \
+                  --repo "${{ github.repository }}" \
+                  --pattern "${tarball}" \
+                  --dir "${RUNNER_TEMP}/deps"
+          fi
+
+      - name: Install dependencies
+        run: |
+          tar -xzf "${RUNNER_TEMP}/deps/libiconv-macos-${ARCH}-latest.tar.gz" \
+              -C "${PGBUILD_PREFIX}"
 
       - name: Download
         run: |
@@ -66,10 +102,13 @@ jobs:
           done
           tar zxf "gettext-${GETTEXT_VERSION}.tar.gz"
 
-      # Nothing is fetched first, unlike the Windows leaf: macOS provides
-      # libiconv in /usr/lib and configure finds it there, and the
-      # pthread_sigmask patch that build applies is a MinGW fix with no
-      # bearing on this one.
+      # --with-libiconv-prefix points at the GNU libiconv built by
+      # libiconv-macos.yml, and is not optional. Left to itself, configure
+      # finds the iconv macOS ships in /usr/lib, which is not GNU libiconv,
+      # and the build then fails linking libtextstyle with
+      # _iconv_ostream_create undefined. The Windows leaf passes the same
+      # thing for the same reason; what it also does, and this does not, is
+      # patch pthread_sigmask, that being a MinGW fix with no bearing here.
       #
       # Only the shared libraries are wanted, and the Java and C# bindings
       # need toolchains that are neither installed nor worth installing for
@@ -79,6 +118,7 @@ jobs:
           cd "gettext-${GETTEXT_VERSION}"
           ./configure \
               --prefix="${PGBUILD_PREFIX}/gettext" \
+              --with-libiconv-prefix="${PGBUILD_PREFIX}/libiconv" \
               --disable-static \
               --disable-dependency-tracking \
               --enable-silent-rules \
