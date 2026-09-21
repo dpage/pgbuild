@@ -121,14 +121,24 @@ jobs:
           mv winpgbuild ossp-uuid
           zip -r ossp-uuid-windows-x86_64-latest.zip ossp-uuid
           
-      - name: Delete Existing Release
-        # Only from the default branch; see the macOS leaves for why.
+      # The tag is moved rather than the release deleted and remade.
+      # Deleting first meant that any failure in the step below, whether
+      # permissions, a rate limit or a network blip, left no release at
+      # all rather than the previous build: that is how
+      # openssl-windows-x86_64-latest came to be absent for four days.
+      # action-gh-release updates an existing release in place, so all
+      # that is needed is for the rolling tag to point at the commit that
+      # produced these assets. Allowed to fail, since the tag will not
+      # exist the first time.
+      - name: Move the rolling tag
         if: github.ref == 'refs/heads/main'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release delete "ossp-uuid-windows-x86_64-latest" --repo "${{ github.repository }}" --cleanup-tag --yes || true
+          gh api -X PATCH \
+              "repos/${GITHUB_REPOSITORY}/git/refs/tags/ossp-uuid-windows-x86_64-latest" \
+              -f sha="${GITHUB_SHA}" -F force=true >/dev/null 2>&1 || true
 
       - name: Create Release
         # Only from the default branch; see the macOS leaves for why.
