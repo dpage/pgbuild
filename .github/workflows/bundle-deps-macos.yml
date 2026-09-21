@@ -1,0 +1,261 @@
+name: Bundle dependencies (macOS)
+
+# One archive per architecture carrying every library the macOS side builds,
+# for anyone who would rather fetch a single file than assemble one out of ten
+# per-package releases. The counterpart of bundle-deps-windows.yml.
+#
+# Unlike the Windows bundle it carries libraries only, and no build tooling.
+# The Windows bundle includes Meson, Ninja, pkgconf, diffutils and
+# winflexbison because Windows has none of them to hand, so a caller unpacking
+# it gets a working build environment along with the libraries. On macOS those
+# tools come from the runner, Homebrew, MacPorts or pip, which is fine for
+# tooling precisely because none of it is shipped; putting them in here would
+# make the one archive we ask people to trust a mixture of the two.
+# meson-macos.yml and ninja-macos.yml publish their own releases for anyone
+# who does want a pinned copy.
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  PGBUILD_PREFIX: /opt/pgbuild
+
+jobs:
+  get-versions:
+    uses: ./.github/workflows/manifest.yml
+    with:
+      config-path: manifest.json
+
+  bundle-deps:
+    needs: get-versions
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+
+    runs-on: ${{ matrix.runner }}
+
+    env:
+      GETTEXT_VERSION: ${{ needs.get-versions.outputs.GETTEXT_VERSION }}
+      ICU_VERSION: ${{ needs.get-versions.outputs.ICU_VERSION }}
+      KRB5_VERSION: ${{ needs.get-versions.outputs.KRB5_VERSION }}
+      LIBICONV_VERSION: ${{ needs.get-versions.outputs.LIBICONV_VERSION }}
+      LIBXML2_VERSION: ${{ needs.get-versions.outputs.LIBXML2_VERSION }}
+      LIBXSLT_VERSION: ${{ needs.get-versions.outputs.LIBXSLT_VERSION }}
+      LZ4_VERSION: ${{ needs.get-versions.outputs.LZ4_VERSION }}
+      OPENSSL_VERSION: ${{ needs.get-versions.outputs.OPENSSL_VERSION }}
+      OSSP_UUID_VERSION: ${{ needs.get-versions.outputs.OSSP-UUID_VERSION }}
+      ZSTD_VERSION: ${{ needs.get-versions.outputs.ZSTD_VERSION }}
+      ARCH: ${{ matrix.arch }}
+      PACKAGES: >-
+        gettext icu krb5 libiconv libxml2 libxslt lz4 openssl ossp-uuid zstd
+
+    steps:
+      - name: Prepare install prefix
+        run: |
+          sudo mkdir -p "${PGBUILD_PREFIX}"
+          sudo chown -R "$(id -u):$(id -g)" "${PGBUILD_PREFIX}"
+          mkdir -p "${RUNNER_TEMP}/deps"
+
+      # When run via build-all-macos (workflow_call), every library is
+      # produced earlier in the same run, so these same-run lookups succeed.
+      # continue-on-error lets a standalone dispatch, where no such artifact
+      # exists, fall through to the release fallback below instead of failing
+      # the job.
+      - name: Download gettext
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          name: gettext-${{ env.GETTEXT_VERSION }}-macos-${{ matrix.arch }}
+          path: ${{ runner.temp }}/deps
+
+      - name: Download icu
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          name: icu-${{ env.ICU_VERSION }}-macos-${{ matrix.arch }}
+          path: ${{ runner.temp }}/deps
+
+      - name: Download krb5
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          name: krb5-${{ env.KRB5_VERSION }}-macos-${{ matrix.arch }}
+          path: ${{ runner.temp }}/deps
+
+      - name: Download libiconv
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          name: libiconv-${{ env.LIBICONV_VERSION }}-macos-${{ matrix.arch }}
+          path: ${{ runner.temp }}/deps
+
+      - name: Download libxml2
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          name: libxml2-${{ env.LIBXML2_VERSION }}-macos-${{ matrix.arch }}
+          path: ${{ runner.temp }}/deps
+
+      - name: Download libxslt
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          name: libxslt-${{ env.LIBXSLT_VERSION }}-macos-${{ matrix.arch }}
+          path: ${{ runner.temp }}/deps
+
+      - name: Download lz4
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          name: lz4-${{ env.LZ4_VERSION }}-macos-${{ matrix.arch }}
+          path: ${{ runner.temp }}/deps
+
+      - name: Download openssl
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          name: openssl-${{ env.OPENSSL_VERSION }}-macos-${{ matrix.arch }}
+          path: ${{ runner.temp }}/deps
+
+      - name: Download ossp-uuid
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          name: ossp-uuid-${{ env.OSSP_UUID_VERSION }}-macos-${{ matrix.arch }}
+          path: ${{ runner.temp }}/deps
+
+      - name: Download zstd
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          name: zstd-${{ env.ZSTD_VERSION }}-macos-${{ matrix.arch }}
+          path: ${{ runner.temp }}/deps
+
+      # Anything the steps above could not supply is pulled from the rolling
+      # per-package release instead, which is what a standalone dispatch of
+      # this workflow always ends up doing.
+      - name: Download dependencies (release fallback)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          for pkg in ${PACKAGES}; do
+              tarball="${pkg}-macos-${ARCH}-latest.tar.gz"
+              if [ ! -f "${RUNNER_TEMP}/deps/${tarball}" ]; then
+                  echo "Fetching ${tarball} from the ${pkg}-macos-${ARCH}-latest release"
+                  gh release download "${pkg}-macos-${ARCH}-latest" \
+                      --repo "${{ github.repository }}" \
+                      --pattern "${tarball}" \
+                      --dir "${RUNNER_TEMP}/deps"
+              fi
+          done
+
+      # Each per-package tarball unpacks to its own directory under the
+      # prefix, so unpacking the lot into one place is all the assembly there
+      # is: the trees do not overlap, and each carries its own
+      # MANIFESTS/<package>.spdx.json, which means the bundle collects every
+      # licence document without this workflow knowing anything about them.
+      - name: Assemble
+        run: |
+          set -euo pipefail
+          for pkg in ${PACKAGES}; do
+              tar -xzf "${RUNNER_TEMP}/deps/${pkg}-macos-${ARCH}-latest.tar.gz" \
+                  -C "${PGBUILD_PREFIX}"
+          done
+          ls -l "${PGBUILD_PREFIX}"
+
+      # Packaged from inside the prefix so that the archive holds
+      # openssl/, krb5/ and the rest at its root, exactly as the per-package
+      # archives do. Unpacking the bundle and unpacking the ten singles into
+      # the same directory therefore give the same tree.
+      - name: Package
+        run: |
+          tar -czf "${RUNNER_TEMP}/dependencies-macos-${ARCH}-latest.tar.gz" \
+              -C "${PGBUILD_PREFIX}" ${PACKAGES}
+
+      - name: Upload Binaries
+        uses: actions/upload-artifact@v7
+        with:
+          if-no-files-found: error
+          name: all-deps-macos-${{ matrix.arch }}
+          path: ${{ runner.temp }}/dependencies-macos-${{ matrix.arch }}-latest.tar.gz
+
+      # Refreshing a rolling release means replacing its asset, not tearing the
+      # release down and building a new one; see lz4-macos.yml for the 403s
+      # that made creating a release every night a bad bet.
+      - name: Publish Release
+        # Only from the default branch. A build on a working branch is a
+        # test of the build, and the rolling tags are shared: publishing
+        # from a branch overwrites whatever main last produced, and main's
+        # next scheduled run overwrites that in turn, so whichever ran last
+        # decides what everybody downloads.
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: dependencies-macos-${{ matrix.arch }}-latest
+          TITLE: PostgreSQL Dependencies (macOS ${{ matrix.arch }})
+          ASSET: ${{ runner.temp }}/dependencies-macos-${{ matrix.arch }}-latest.tar.gz
+        run: |
+          set -euo pipefail
+
+          # True only when the release exists and is not a draft, since a draft
+          # has no tag behind it and so cannot be downloaded by tag, however
+          # healthy it looks in the web interface.
+          is_published() {
+              [ "$(gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" \
+                      --json isDraft --jq .isDraft 2>/dev/null)" = "false" ]
+          }
+
+          publish() {
+              if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" \
+                      >/dev/null 2>&1; then
+                  # Move the rolling tag onto the commit that produced these
+                  # assets. Allowed to fail: a release left as a draft by an
+                  # earlier attempt has no tag yet, and the edit below makes
+                  # one.
+                  gh api -X PATCH \
+                      "repos/${GITHUB_REPOSITORY}/git/refs/tags/${TAG}" \
+                      -f sha="${GITHUB_SHA}" -F force=true >/dev/null 2>&1 \
+                      || true
+                  gh release edit "${TAG}" --repo "${GITHUB_REPOSITORY}" \
+                      --title "${TITLE}" --prerelease --draft=false \
+                      >/dev/null &&
+                  gh release upload "${TAG}" "${ASSET}" \
+                      --repo "${GITHUB_REPOSITORY}" --clobber
+              else
+                  gh release create "${TAG}" "${ASSET}" \
+                      --repo "${GITHUB_REPOSITORY}" \
+                      --target "${GITHUB_SHA}" \
+                      --title "${TITLE}" \
+                      --prerelease
+              fi
+          }
+
+          # The back-off is deliberately generous, because throwing away a
+          # build that has already passed, over an API call that may well work
+          # a few minutes later, would be absurd.
+          for attempt in 1 2 3 4 5 6 7 8; do
+              if publish && is_published; then
+                  echo "Published ${TAG}"
+                  exit 0
+              fi
+
+              delay=$((attempt * 60))
+              if [ "${delay}" -gt 300 ]; then
+                  delay=300
+              fi
+              echo "Publishing ${TAG} failed on attempt ${attempt};" \
+                   "retrying in ${delay}s"
+              sleep "${delay}"
+          done
+
+          echo "Giving up on ${TAG} after 8 attempts" >&2
+          exit 1

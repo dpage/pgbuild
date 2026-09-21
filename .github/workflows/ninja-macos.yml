@@ -1,0 +1,169 @@
+name: Build Ninja (macOS)
+
+# Ninja is here for Meson's sake rather than in its own right. Meson has no
+# backend but Ninja, so publishing a pinned Meson without one beside it would
+# be publishing half a tool; see meson-macos.yml for why a pinned Meson is
+# worth having on a platform that does not yet build with it.
+#
+# Its version is not a reproducibility control the way Meson's is. Meson
+# decides what the build system looks like, whereas Ninja only runs it, so if
+# a caller would rather use the Ninja from Homebrew, MacPorts or the runner
+# image, nothing here objects. Nothing in this repository consumes this
+# either: the macOS PostgreSQL build configures with ./configure.
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  PGBUILD_PREFIX: /opt/pgbuild
+  # No MACOSX_DEPLOYMENT_TARGET or LDFLAGS here, unlike the library leaves:
+  # upstream ships a built binary, so there is nothing of ours to compile and
+  # no link line to influence.
+
+jobs:
+  get-versions:
+    uses: ./.github/workflows/manifest.yml
+    with:
+      config-path: manifest.json
+
+  build-ninja:
+    needs: get-versions
+
+    # ninja-mac.zip is a single universal binary carrying both architectures,
+    # so both legs of this matrix produce the same tree. It is packaged twice
+    # anyway so that its artefacts and tags follow the same
+    # <package>-macos-<arch>-latest scheme as everything else here.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+
+    runs-on: ${{ matrix.runner }}
+
+    env:
+      NINJA_VERSION: ${{ needs.get-versions.outputs.NINJA_VERSION }}
+
+    steps:
+      - name: Prepare install prefix
+        run: |
+          sudo mkdir -p "${PGBUILD_PREFIX}"
+          sudo chown -R "$(id -u):$(id -g)" "${PGBUILD_PREFIX}"
+
+      # bin/ rather than the prefix root, matching ninja-windows.yml and the
+      # library leaves, so that a caller adds <prefix>/<package>/bin to PATH
+      # whichever package it came from.
+      - name: Download
+        run: |
+          curl -fL --retry 5 --retry-delay 5 --retry-all-errors --connect-timeout 30 \
+              "https://github.com/ninja-build/ninja/releases/download/v${NINJA_VERSION}/ninja-mac.zip" \
+              -o ninja-mac.zip
+
+          mkdir -p "${PGBUILD_PREFIX}/ninja/bin"
+          unzip -o ninja-mac.zip -d "${PGBUILD_PREFIX}/ninja/bin"
+          chmod +x "${PGBUILD_PREFIX}/ninja/bin/ninja"
+
+          PATH="${PGBUILD_PREFIX}/ninja/bin:${PATH}" ninja --version
+
+      - name: Checkout SPDX action
+        uses: actions/checkout@v6
+        with:
+          path: _src
+          sparse-checkout: |
+            .github/actions/generate-spdx-posix
+          sparse-checkout-cone-mode: false
+
+      - name: Generate SPDX manifest
+        uses: ./_src/.github/actions/generate-spdx-posix
+        with:
+          package: ninja
+          install-dir: ${{ env.PGBUILD_PREFIX }}/ninja
+
+      - name: Package
+        run: |
+          tar -czf "${RUNNER_TEMP}/ninja-macos-${{ matrix.arch }}-latest.tar.gz" \
+              -C "${PGBUILD_PREFIX}" ninja
+
+      - name: Upload Binaries
+        uses: actions/upload-artifact@v7
+        with:
+          if-no-files-found: error
+          name: ninja-${{ env.NINJA_VERSION }}-macos-${{ matrix.arch }}
+          path: ${{ runner.temp }}/ninja-macos-${{ matrix.arch }}-latest.tar.gz
+
+      # Refreshing a rolling release means replacing its asset, not tearing the
+      # release down and building a new one; see lz4-macos.yml for the 403s
+      # that made creating a release every night a bad bet.
+      - name: Publish Release
+        # Only from the default branch. A build on a working branch is a
+        # test of the build, and the rolling tags are shared: publishing
+        # from a branch overwrites whatever main last produced, and main's
+        # next scheduled run overwrites that in turn, so whichever ran last
+        # decides what everybody downloads.
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ninja-macos-${{ matrix.arch }}-latest
+          TITLE: Ninja (macOS ${{ matrix.arch }})
+          ASSET: ${{ runner.temp }}/ninja-macos-${{ matrix.arch }}-latest.tar.gz
+        run: |
+          set -euo pipefail
+
+          # True only when the release exists and is not a draft, since a draft
+          # has no tag behind it and so cannot be downloaded by tag, however
+          # healthy it looks in the web interface.
+          is_published() {
+              [ "$(gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" \
+                      --json isDraft --jq .isDraft 2>/dev/null)" = "false" ]
+          }
+
+          publish() {
+              if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" \
+                      >/dev/null 2>&1; then
+                  # Move the rolling tag onto the commit that produced these
+                  # assets. Allowed to fail: a release left as a draft by an
+                  # earlier attempt has no tag yet, and the edit below makes
+                  # one.
+                  gh api -X PATCH \
+                      "repos/${GITHUB_REPOSITORY}/git/refs/tags/${TAG}" \
+                      -f sha="${GITHUB_SHA}" -F force=true >/dev/null 2>&1 \
+                      || true
+                  gh release edit "${TAG}" --repo "${GITHUB_REPOSITORY}" \
+                      --title "${TITLE}" --prerelease --draft=false \
+                      >/dev/null &&
+                  gh release upload "${TAG}" "${ASSET}" \
+                      --repo "${GITHUB_REPOSITORY}" --clobber
+              else
+                  gh release create "${TAG}" "${ASSET}" \
+                      --repo "${GITHUB_REPOSITORY}" \
+                      --target "${GITHUB_SHA}" \
+                      --title "${TITLE}" \
+                      --prerelease
+              fi
+          }
+
+          # The back-off is deliberately generous, because throwing away a
+          # build that has already passed, over an API call that may well work
+          # a few minutes later, would be absurd.
+          for attempt in 1 2 3 4 5 6 7 8; do
+              if publish && is_published; then
+                  echo "Published ${TAG}"
+                  exit 0
+              fi
+
+              delay=$((attempt * 60))
+              if [ "${delay}" -gt 300 ]; then
+                  delay=300
+              fi
+              echo "Publishing ${TAG} failed on attempt ${attempt};" \
+                   "retrying in ${delay}s"
+              sleep "${delay}"
+          done
+
+          echo "Giving up on ${TAG} after 8 attempts" >&2
+          exit 1

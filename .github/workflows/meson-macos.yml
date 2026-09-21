@@ -1,0 +1,188 @@
+name: Build Meson (macOS)
+
+# Meson is build tooling rather than something we ship, and macOS runners,
+# Homebrew, MacPorts and pip can all supply one, so this is not here because
+# the tooling is otherwise unobtainable the way it is on Windows. It is here
+# because the version matters: Meson generates PostgreSQL's build system, and
+# which Meson generated it is part of what makes a build reproducible, which
+# is why the version is pinned in manifest.json rather than left to whatever
+# the runner image ships this month.
+#
+# Nothing in this repository currently consumes it. The macOS PostgreSQL build
+# configures with ./configure, not Meson, so this is not a dependency of
+# postgresql-macos.yml and is not wired into it; it is built and published so
+# that a pinned Meson is to hand if and when macOS follows Windows onto Meson,
+# and because these builds are published for anyone else who wants them.
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  PGBUILD_PREFIX: /opt/pgbuild
+  # No MACOSX_DEPLOYMENT_TARGET or LDFLAGS here, unlike the library leaves:
+  # nothing is compiled, Meson being pure Python, so there is no deployment
+  # target to pin and no Mach-O header to pad.
+
+jobs:
+  get-versions:
+    uses: ./.github/workflows/manifest.yml
+    with:
+      config-path: manifest.json
+
+  build-meson:
+    needs: get-versions
+
+    # Meson is architecture-independent, so both legs of this matrix produce
+    # the same tree. It is built twice anyway so that its artefacts and tags
+    # follow the same <package>-macos-<arch>-latest scheme as everything else
+    # here; a consumer resolving a tag by architecture should not have to know
+    # that this one package is the exception.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+
+    runs-on: ${{ matrix.runner }}
+
+    env:
+      MESON_VERSION: ${{ needs.get-versions.outputs.MESON_VERSION }}
+
+    steps:
+      - name: Prepare install prefix
+        run: |
+          sudo mkdir -p "${PGBUILD_PREFIX}"
+          sudo chown -R "$(id -u):$(id -g)" "${PGBUILD_PREFIX}"
+
+      # The layout mirrors meson-windows.yml: the source tree lands in
+      # mesonbuild/ and a wrapper in bin/ runs meson.py out of it, so the two
+      # platforms lay a Meson tree out the same way and a caller only has to
+      # put bin/ on PATH.
+      - name: Download
+        run: |
+          curl -fL --retry 5 --retry-delay 5 --retry-all-errors --connect-timeout 30 \
+              "https://github.com/mesonbuild/meson/releases/download/${MESON_VERSION}/meson-${MESON_VERSION}.tar.gz" \
+              -o "meson-${MESON_VERSION}.tar.gz"
+
+          mkdir -p "${PGBUILD_PREFIX}/meson/mesonbuild"
+          mkdir -p "${PGBUILD_PREFIX}/meson/bin"
+
+          tar -C "${PGBUILD_PREFIX}/meson/mesonbuild" --strip-components=1 \
+              -xzf "meson-${MESON_VERSION}.tar.gz"
+
+      # The wrapper resolves meson.py relative to its own location rather than
+      # from a path baked in at build time, because this tree is published for
+      # other people to unpack wherever suits them and /opt/pgbuild is only
+      # where we happened to build it.
+      - name: Install wrapper
+        run: |
+          cat > "${PGBUILD_PREFIX}/meson/bin/meson" <<'EOF'
+          #!/bin/sh
+          exec python3 "$(cd "$(dirname "$0")/../mesonbuild" && pwd)/meson.py" "$@"
+          EOF
+          chmod +x "${PGBUILD_PREFIX}/meson/bin/meson"
+
+          PATH="${PGBUILD_PREFIX}/meson/bin:${PATH}" meson --version
+
+      - name: Checkout SPDX action
+        uses: actions/checkout@v6
+        with:
+          path: _src
+          sparse-checkout: |
+            .github/actions/generate-spdx-posix
+          sparse-checkout-cone-mode: false
+
+      - name: Generate SPDX manifest
+        uses: ./_src/.github/actions/generate-spdx-posix
+        with:
+          package: meson
+          install-dir: ${{ env.PGBUILD_PREFIX }}/meson
+
+      - name: Package
+        run: |
+          tar -czf "${RUNNER_TEMP}/meson-macos-${{ matrix.arch }}-latest.tar.gz" \
+              -C "${PGBUILD_PREFIX}" meson
+
+      - name: Upload Binaries
+        uses: actions/upload-artifact@v7
+        with:
+          if-no-files-found: error
+          name: meson-${{ env.MESON_VERSION }}-macos-${{ matrix.arch }}
+          path: ${{ runner.temp }}/meson-macos-${{ matrix.arch }}-latest.tar.gz
+
+      # Refreshing a rolling release means replacing its asset, not tearing the
+      # release down and building a new one; see lz4-macos.yml for the 403s
+      # that made creating a release every night a bad bet.
+      - name: Publish Release
+        # Only from the default branch. A build on a working branch is a
+        # test of the build, and the rolling tags are shared: publishing
+        # from a branch overwrites whatever main last produced, and main's
+        # next scheduled run overwrites that in turn, so whichever ran last
+        # decides what everybody downloads.
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: meson-macos-${{ matrix.arch }}-latest
+          TITLE: Meson (macOS ${{ matrix.arch }})
+          ASSET: ${{ runner.temp }}/meson-macos-${{ matrix.arch }}-latest.tar.gz
+        run: |
+          set -euo pipefail
+
+          # True only when the release exists and is not a draft, since a draft
+          # has no tag behind it and so cannot be downloaded by tag, however
+          # healthy it looks in the web interface.
+          is_published() {
+              [ "$(gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" \
+                      --json isDraft --jq .isDraft 2>/dev/null)" = "false" ]
+          }
+
+          publish() {
+              if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" \
+                      >/dev/null 2>&1; then
+                  # Move the rolling tag onto the commit that produced these
+                  # assets. Allowed to fail: a release left as a draft by an
+                  # earlier attempt has no tag yet, and the edit below makes
+                  # one.
+                  gh api -X PATCH \
+                      "repos/${GITHUB_REPOSITORY}/git/refs/tags/${TAG}" \
+                      -f sha="${GITHUB_SHA}" -F force=true >/dev/null 2>&1 \
+                      || true
+                  gh release edit "${TAG}" --repo "${GITHUB_REPOSITORY}" \
+                      --title "${TITLE}" --prerelease --draft=false \
+                      >/dev/null &&
+                  gh release upload "${TAG}" "${ASSET}" \
+                      --repo "${GITHUB_REPOSITORY}" --clobber
+              else
+                  gh release create "${TAG}" "${ASSET}" \
+                      --repo "${GITHUB_REPOSITORY}" \
+                      --target "${GITHUB_SHA}" \
+                      --title "${TITLE}" \
+                      --prerelease
+              fi
+          }
+
+          # The back-off is deliberately generous, because throwing away a
+          # build that has already passed, over an API call that may well work
+          # a few minutes later, would be absurd.
+          for attempt in 1 2 3 4 5 6 7 8; do
+              if publish && is_published; then
+                  echo "Published ${TAG}"
+                  exit 0
+              fi
+
+              delay=$((attempt * 60))
+              if [ "${delay}" -gt 300 ]; then
+                  delay=300
+              fi
+              echo "Publishing ${TAG} failed on attempt ${attempt};" \
+                   "retrying in ${delay}s"
+              sleep "${delay}"
+          done
+
+          echo "Giving up on ${TAG} after 8 attempts" >&2
+          exit 1
