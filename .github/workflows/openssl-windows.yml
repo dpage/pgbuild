@@ -97,6 +97,8 @@ jobs:
           Compress-Archive /openssl /openssl-windows-x86_64-latest.zip
           
       - name: Delete Existing Release
+        # Only from the default branch; see the macOS leaves for why.
+        if: github.ref == 'refs/heads/main'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -104,6 +106,8 @@ jobs:
           gh release delete "openssl-windows-x86_64-latest" --repo "${{ github.repository }}" --cleanup-tag --yes || true
 
       - name: Create Release
+        # Only from the default branch; see the macOS leaves for why.
+        if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v3
         with:
           tag_name: "openssl-windows-x86_64-latest"

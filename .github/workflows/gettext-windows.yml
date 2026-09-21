@@ -112,6 +112,8 @@ jobs:
           zip -r gettext-windows-x86_64-latest.zip gettext
           
       - name: Delete Existing Release
+        # Only from the default branch; see the macOS leaves for why.
+        if: github.ref == 'refs/heads/main'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -119,6 +121,8 @@ jobs:
           gh release delete "gettext-windows-x86_64-latest" --repo "${{ github.repository }}" --cleanup-tag --yes || true
 
       - name: Create Release
+        # Only from the default branch; see the macOS leaves for why.
+        if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v3
         with:
           tag_name: "gettext-windows-x86_64-latest"

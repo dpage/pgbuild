@@ -284,6 +284,12 @@ jobs:
       # That also keeps the release's identity and URL intact between builds,
       # which deleting and recreating did not.
       - name: Publish Release
+        # Only from the default branch. A build on a working branch is a
+        # test of the build, and the rolling tags are shared: publishing
+        # from a branch overwrites whatever main last produced, and main's
+        # next scheduled run overwrites that in turn, so whichever ran last
+        # decides what everybody downloads.
+        if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: postgresql-${{ steps.majorVersion.outputs.majorVersion }}-macos-${{ matrix.arch }}-latest

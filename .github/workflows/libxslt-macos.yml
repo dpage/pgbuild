@@ -4,12 +4,6 @@ on:
   workflow_dispatch:
   workflow_call:
 
-  # TEMPORARY, as for the other new leaves; remove before merge. Added after
-  # libxml2 published, since a standalone run falls back to that release.
-  push:
-    branches: [ "macos-libraries" ]
-    paths:
-      - '.github/workflows/libxslt-macos.yml'
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
@@ -161,6 +155,12 @@ jobs:
       # That also keeps the release's identity and URL intact between builds,
       # which deleting and recreating did not.
       - name: Publish Release
+        # Only from the default branch. A build on a working branch is a
+        # test of the build, and the rolling tags are shared: publishing
+        # from a branch overwrites whatever main last produced, and main's
+        # next scheduled run overwrites that in turn, so whichever ran last
+        # decides what everybody downloads.
+        if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: libxslt-macos-${{ matrix.arch }}-latest
