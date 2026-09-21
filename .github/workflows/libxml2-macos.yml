@@ -1,8 +1,9 @@
-name: Build KRB5 (macOS)
+name: Build libxml2 (macOS)
 
 on:
   workflow_dispatch:
   workflow_call:
+
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
@@ -24,7 +25,7 @@ jobs:
     with:
       config-path: manifest.json
 
-  build-krb5:
+  build-libxml2:
     needs: get-versions
 
     strategy:
@@ -39,7 +40,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
 
     env:
-      KRB5_VERSION: ${{ needs.get-versions.outputs.KRB5_VERSION }}
+      LIBXML2_VERSION: ${{ needs.get-versions.outputs.LIBXML2_VERSION }}
 
     steps:
       - name: Prepare install prefix
@@ -47,36 +48,42 @@ jobs:
           sudo mkdir -p "${PGBUILD_PREFIX}"
           sudo chown -R "$(id -u):$(id -g)" "${PGBUILD_PREFIX}"
 
+      # The GNOME release tarball rather than the GitLab archive of the tag
+      # that the Windows leaf takes. The archive is a source snapshot with no
+      # generated configure in it, which CMake does not mind but an autotools
+      # build does, and regenerating it would mean autoconf, automake and
+      # libtool, none of which macOS ships. Releases live in a directory named
+      # after the major and minor version, hence the trimmed copy below.
       - name: Download
         run: |
+          series="${LIBXML2_VERSION%.*}"
           curl -fL --retry 5 --retry-delay 5 --retry-all-errors --connect-timeout 30 \
-              "https://kerberos.org/dist/krb5/1.22/krb5-${KRB5_VERSION}.tar.gz" \
-              -o "krb5-${KRB5_VERSION}.tar.gz"
-          tar zxf "krb5-${KRB5_VERSION}.tar.gz"
+              "https://download.gnome.org/sources/libxml2/${series}/libxml2-${LIBXML2_VERSION}.tar.xz" \
+              -o "libxml2-${LIBXML2_VERSION}.tar.xz"
+          tar xf "libxml2-${LIBXML2_VERSION}.tar.xz"
 
+      # zlib and iconv both come from macOS itself, in /usr/lib, so they are
+      # linked rather than built; zlib support is off by default in libxml2's
+      # configure and has to be asked for. The Python bindings are declined
+      # because they would be built against whichever Python the runner image
+      # happens to ship, and what is published here is a C library.
       - name: Configure
         run: |
-          cd "krb5-${KRB5_VERSION}/src"
-          ./configure --prefix="${PGBUILD_PREFIX}/krb5"
+          cd "libxml2-${LIBXML2_VERSION}"
+          ./configure \
+              --prefix="${PGBUILD_PREFIX}/libxml2" \
+              --with-zlib \
+              --with-iconv \
+              --without-python
 
       - name: Build
         run: |
-          cd "krb5-${KRB5_VERSION}/src"
-          make -j4 all
-
-      # Upstream's `make check` is deliberately not run. It was already skipped
-      # by the Jenkins jobs this workflow replaces, because large parts of the
-      # krb5 test suite stand up a KDC and talk to it over the loopback
-      # interface with fixed ports and a writable /etc, which neither the old
-      # build farm nor an ephemeral GitHub runner provides. We only consume
-      # libgssapi_krb5 and libkrb5 for libpq's GSSAPI support, which the
-      # PostgreSQL build exercises in turn, so the cost of getting the full
-      # suite running has never been worth it. Keeping it skipped, and saying
-      # so here, is better than pretending the coverage exists.
+          cd "libxml2-${LIBXML2_VERSION}"
+          make -j"$(sysctl -n hw.ncpu)"
 
       - name: Install
         run: |
-          cd "krb5-${KRB5_VERSION}/src"
+          cd "libxml2-${LIBXML2_VERSION}"
           make install
 
       - name: Checkout SPDX action
@@ -90,20 +97,20 @@ jobs:
       - name: Generate SPDX manifest
         uses: ./_src/.github/actions/generate-spdx-posix
         with:
-          package: krb5
-          install-dir: ${{ env.PGBUILD_PREFIX }}/krb5
+          package: libxml2
+          install-dir: ${{ env.PGBUILD_PREFIX }}/libxml2
 
       - name: Package
         run: |
-          tar -czf "${RUNNER_TEMP}/krb5-macos-${{ matrix.arch }}-latest.tar.gz" \
-              -C "${PGBUILD_PREFIX}" krb5
+          tar -czf "${RUNNER_TEMP}/libxml2-macos-${{ matrix.arch }}-latest.tar.gz" \
+              -C "${PGBUILD_PREFIX}" libxml2
 
       - name: Upload Binaries
         uses: actions/upload-artifact@v7
         with:
           if-no-files-found: error
-          name: krb5-${{ env.KRB5_VERSION }}-macos-${{ matrix.arch }}
-          path: ${{ runner.temp }}/krb5-macos-${{ matrix.arch }}-latest.tar.gz
+          name: libxml2-${{ env.LIBXML2_VERSION }}-macos-${{ matrix.arch }}
+          path: ${{ runner.temp }}/libxml2-macos-${{ matrix.arch }}-latest.tar.gz
 
       # Refreshing a rolling release means replacing its asset, not tearing the
       # release down and building a new one. Creating a release is the
@@ -125,9 +132,9 @@ jobs:
         if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: krb5-macos-${{ matrix.arch }}-latest
-          TITLE: MIT Kerberos (macOS ${{ matrix.arch }})
-          ASSET: ${{ runner.temp }}/krb5-macos-${{ matrix.arch }}-latest.tar.gz
+          TAG: libxml2-macos-${{ matrix.arch }}-latest
+          TITLE: libxml2 (macOS ${{ matrix.arch }})
+          ASSET: ${{ runner.temp }}/libxml2-macos-${{ matrix.arch }}-latest.tar.gz
         run: |
           set -euo pipefail
 

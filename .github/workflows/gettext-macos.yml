@@ -1,8 +1,9 @@
-name: Build KRB5 (macOS)
+name: Build gettext (macOS)
 
 on:
   workflow_dispatch:
   workflow_call:
+
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
@@ -24,7 +25,7 @@ jobs:
     with:
       config-path: manifest.json
 
-  build-krb5:
+  build-gettext:
     needs: get-versions
 
     strategy:
@@ -39,44 +40,92 @@ jobs:
     runs-on: ${{ matrix.runner }}
 
     env:
-      KRB5_VERSION: ${{ needs.get-versions.outputs.KRB5_VERSION }}
+      GETTEXT_VERSION: ${{ needs.get-versions.outputs.GETTEXT_VERSION }}
+      LIBICONV_VERSION: ${{ needs.get-versions.outputs.LIBICONV_VERSION }}
+      ARCH: ${{ matrix.arch }}
 
     steps:
       - name: Prepare install prefix
         run: |
           sudo mkdir -p "${PGBUILD_PREFIX}"
           sudo chown -R "$(id -u):$(id -g)" "${PGBUILD_PREFIX}"
+          mkdir -p "${RUNNER_TEMP}/deps"
+
+      # When run via build-all-macos (workflow_call), libiconv is produced
+      # earlier in the same run, so this same-run lookup succeeds.
+      # continue-on-error lets a standalone dispatch, where no such artifact
+      # exists, fall through to the release fallback below instead of failing
+      # the job.
+      - name: Download libiconv
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          name: libiconv-${{ env.LIBICONV_VERSION }}-macos-${{ matrix.arch }}
+          path: ${{ runner.temp }}/deps
+
+      # Anything the step above could not supply is pulled from the rolling
+      # per-package release instead, which is what a standalone dispatch of
+      # this workflow always ends up doing.
+      - name: Download dependencies (release fallback)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tarball="libiconv-macos-${ARCH}-latest.tar.gz"
+          if [ ! -f "${RUNNER_TEMP}/deps/${tarball}" ]; then
+              echo "Fetching ${tarball} from the libiconv-macos-${ARCH}-latest release"
+              gh release download "libiconv-macos-${ARCH}-latest" \
+                  --repo "${{ github.repository }}" \
+                  --pattern "${tarball}" \
+                  --dir "${RUNNER_TEMP}/deps"
+          fi
+
+      - name: Install dependencies
+        run: |
+          tar -xzf "${RUNNER_TEMP}/deps/libiconv-macos-${ARCH}-latest.tar.gz" \
+              -C "${PGBUILD_PREFIX}"
 
       - name: Download
         run: |
-          curl -fL --retry 5 --retry-delay 5 --retry-all-errors --connect-timeout 30 \
-              "https://kerberos.org/dist/krb5/1.22/krb5-${KRB5_VERSION}.tar.gz" \
-              -o "krb5-${KRB5_VERSION}.tar.gz"
-          tar zxf "krb5-${KRB5_VERSION}.tar.gz"
+          # ftp.gnu.org is intermittently unroutable from the runners, so fall
+          # back to a mirror rather than failing the entire build.
+          for host in https://ftp.gnu.org/pub/gnu https://mirrors.kernel.org/gnu; do
+              curl -fL --retry 3 --retry-delay 5 --retry-all-errors --connect-timeout 30 \
+                  "${host}/gettext/gettext-${GETTEXT_VERSION}.tar.gz" \
+                  -o "gettext-${GETTEXT_VERSION}.tar.gz" && break
+          done
+          tar zxf "gettext-${GETTEXT_VERSION}.tar.gz"
 
+      # --with-libiconv-prefix points at the GNU libiconv built by
+      # libiconv-macos.yml, and is not optional. Left to itself, configure
+      # finds the iconv macOS ships in /usr/lib, which is not GNU libiconv,
+      # and the build then fails linking libtextstyle with
+      # _iconv_ostream_create undefined. The Windows leaf passes the same
+      # thing for the same reason; what it also does, and this does not, is
+      # patch pthread_sigmask, that being a MinGW fix with no bearing here.
+      #
+      # Only the shared libraries are wanted, and the Java and C# bindings
+      # need toolchains that are neither installed nor worth installing for
+      # something PostgreSQL does not link.
       - name: Configure
         run: |
-          cd "krb5-${KRB5_VERSION}/src"
-          ./configure --prefix="${PGBUILD_PREFIX}/krb5"
+          cd "gettext-${GETTEXT_VERSION}"
+          ./configure \
+              --prefix="${PGBUILD_PREFIX}/gettext" \
+              --with-libiconv-prefix="${PGBUILD_PREFIX}/libiconv" \
+              --disable-static \
+              --disable-dependency-tracking \
+              --enable-silent-rules \
+              --disable-csharp \
+              --disable-java
 
       - name: Build
         run: |
-          cd "krb5-${KRB5_VERSION}/src"
-          make -j4 all
-
-      # Upstream's `make check` is deliberately not run. It was already skipped
-      # by the Jenkins jobs this workflow replaces, because large parts of the
-      # krb5 test suite stand up a KDC and talk to it over the loopback
-      # interface with fixed ports and a writable /etc, which neither the old
-      # build farm nor an ephemeral GitHub runner provides. We only consume
-      # libgssapi_krb5 and libkrb5 for libpq's GSSAPI support, which the
-      # PostgreSQL build exercises in turn, so the cost of getting the full
-      # suite running has never been worth it. Keeping it skipped, and saying
-      # so here, is better than pretending the coverage exists.
+          cd "gettext-${GETTEXT_VERSION}"
+          make -j"$(sysctl -n hw.ncpu)"
 
       - name: Install
         run: |
-          cd "krb5-${KRB5_VERSION}/src"
+          cd "gettext-${GETTEXT_VERSION}"
           make install
 
       - name: Checkout SPDX action
@@ -90,20 +139,20 @@ jobs:
       - name: Generate SPDX manifest
         uses: ./_src/.github/actions/generate-spdx-posix
         with:
-          package: krb5
-          install-dir: ${{ env.PGBUILD_PREFIX }}/krb5
+          package: gettext
+          install-dir: ${{ env.PGBUILD_PREFIX }}/gettext
 
       - name: Package
         run: |
-          tar -czf "${RUNNER_TEMP}/krb5-macos-${{ matrix.arch }}-latest.tar.gz" \
-              -C "${PGBUILD_PREFIX}" krb5
+          tar -czf "${RUNNER_TEMP}/gettext-macos-${{ matrix.arch }}-latest.tar.gz" \
+              -C "${PGBUILD_PREFIX}" gettext
 
       - name: Upload Binaries
         uses: actions/upload-artifact@v7
         with:
           if-no-files-found: error
-          name: krb5-${{ env.KRB5_VERSION }}-macos-${{ matrix.arch }}
-          path: ${{ runner.temp }}/krb5-macos-${{ matrix.arch }}-latest.tar.gz
+          name: gettext-${{ env.GETTEXT_VERSION }}-macos-${{ matrix.arch }}
+          path: ${{ runner.temp }}/gettext-macos-${{ matrix.arch }}-latest.tar.gz
 
       # Refreshing a rolling release means replacing its asset, not tearing the
       # release down and building a new one. Creating a release is the
@@ -125,9 +174,9 @@ jobs:
         if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: krb5-macos-${{ matrix.arch }}-latest
-          TITLE: MIT Kerberos (macOS ${{ matrix.arch }})
-          ASSET: ${{ runner.temp }}/krb5-macos-${{ matrix.arch }}-latest.tar.gz
+          TAG: gettext-macos-${{ matrix.arch }}-latest
+          TITLE: gettext (macOS ${{ matrix.arch }})
+          ASSET: ${{ runner.temp }}/gettext-macos-${{ matrix.arch }}-latest.tar.gz
         run: |
           set -euo pipefail
 

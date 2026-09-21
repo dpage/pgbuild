@@ -1,8 +1,9 @@
-name: Build KRB5 (macOS)
+name: Build ICU (macOS)
 
 on:
   workflow_dispatch:
   workflow_call:
+
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
@@ -24,7 +25,7 @@ jobs:
     with:
       config-path: manifest.json
 
-  build-krb5:
+  build-icu:
     needs: get-versions
 
     strategy:
@@ -39,7 +40,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
 
     env:
-      KRB5_VERSION: ${{ needs.get-versions.outputs.KRB5_VERSION }}
+      ICU_VERSION: ${{ needs.get-versions.outputs.ICU_VERSION }}
 
     steps:
       - name: Prepare install prefix
@@ -47,36 +48,44 @@ jobs:
           sudo mkdir -p "${PGBUILD_PREFIX}"
           sudo chown -R "$(id -u):$(id -g)" "${PGBUILD_PREFIX}"
 
+      # The tarball rather than the zip the Windows leaf takes from the same
+      # release, because it keeps the executable bit on configure and
+      # runConfigureICU.
       - name: Download
         run: |
           curl -fL --retry 5 --retry-delay 5 --retry-all-errors --connect-timeout 30 \
-              "https://kerberos.org/dist/krb5/1.22/krb5-${KRB5_VERSION}.tar.gz" \
-              -o "krb5-${KRB5_VERSION}.tar.gz"
-          tar zxf "krb5-${KRB5_VERSION}.tar.gz"
+              "https://github.com/unicode-org/icu/releases/download/release-${ICU_VERSION}/icu4c-${ICU_VERSION}-sources.tgz" \
+              -o "icu4c-${ICU_VERSION}-sources.tgz"
+          tar zxf "icu4c-${ICU_VERSION}-sources.tgz"
 
+      # --enable-rpath is what makes these dylibs usable anywhere else. ICU's
+      # Darwin rules otherwise set each library's install_name to the bare leaf
+      # name, so anything linking against them records a load command with no
+      # directory in it and cannot find the library at run time without
+      # DYLD_LIBRARY_PATH being set, which System Integrity Protection strips
+      # from a protected process anyway. With it, the install name is the
+      # absolute path under the prefix, which is what every other package here
+      # produces and what consumers rewrite with install_name_tool.
+      #
+      # The test and sample programs are a large part of the build and nothing
+      # here runs them, so they are not built.
       - name: Configure
         run: |
-          cd "krb5-${KRB5_VERSION}/src"
-          ./configure --prefix="${PGBUILD_PREFIX}/krb5"
+          cd icu/source
+          ./runConfigureICU MacOSX \
+              --prefix="${PGBUILD_PREFIX}/icu" \
+              --enable-rpath \
+              --disable-samples \
+              --disable-tests
 
       - name: Build
         run: |
-          cd "krb5-${KRB5_VERSION}/src"
-          make -j4 all
-
-      # Upstream's `make check` is deliberately not run. It was already skipped
-      # by the Jenkins jobs this workflow replaces, because large parts of the
-      # krb5 test suite stand up a KDC and talk to it over the loopback
-      # interface with fixed ports and a writable /etc, which neither the old
-      # build farm nor an ephemeral GitHub runner provides. We only consume
-      # libgssapi_krb5 and libkrb5 for libpq's GSSAPI support, which the
-      # PostgreSQL build exercises in turn, so the cost of getting the full
-      # suite running has never been worth it. Keeping it skipped, and saying
-      # so here, is better than pretending the coverage exists.
+          cd icu/source
+          make -j"$(sysctl -n hw.ncpu)"
 
       - name: Install
         run: |
-          cd "krb5-${KRB5_VERSION}/src"
+          cd icu/source
           make install
 
       - name: Checkout SPDX action
@@ -90,20 +99,20 @@ jobs:
       - name: Generate SPDX manifest
         uses: ./_src/.github/actions/generate-spdx-posix
         with:
-          package: krb5
-          install-dir: ${{ env.PGBUILD_PREFIX }}/krb5
+          package: icu
+          install-dir: ${{ env.PGBUILD_PREFIX }}/icu
 
       - name: Package
         run: |
-          tar -czf "${RUNNER_TEMP}/krb5-macos-${{ matrix.arch }}-latest.tar.gz" \
-              -C "${PGBUILD_PREFIX}" krb5
+          tar -czf "${RUNNER_TEMP}/icu-macos-${{ matrix.arch }}-latest.tar.gz" \
+              -C "${PGBUILD_PREFIX}" icu
 
       - name: Upload Binaries
         uses: actions/upload-artifact@v7
         with:
           if-no-files-found: error
-          name: krb5-${{ env.KRB5_VERSION }}-macos-${{ matrix.arch }}
-          path: ${{ runner.temp }}/krb5-macos-${{ matrix.arch }}-latest.tar.gz
+          name: icu-${{ env.ICU_VERSION }}-macos-${{ matrix.arch }}
+          path: ${{ runner.temp }}/icu-macos-${{ matrix.arch }}-latest.tar.gz
 
       # Refreshing a rolling release means replacing its asset, not tearing the
       # release down and building a new one. Creating a release is the
@@ -125,9 +134,9 @@ jobs:
         if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: krb5-macos-${{ matrix.arch }}-latest
-          TITLE: MIT Kerberos (macOS ${{ matrix.arch }})
-          ASSET: ${{ runner.temp }}/krb5-macos-${{ matrix.arch }}-latest.tar.gz
+          TAG: icu-macos-${{ matrix.arch }}-latest
+          TITLE: ICU (macOS ${{ matrix.arch }})
+          ASSET: ${{ runner.temp }}/icu-macos-${{ matrix.arch }}-latest.tar.gz
         run: |
           set -euo pipefail
 

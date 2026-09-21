@@ -71,12 +71,12 @@ same everywhere and does not vary with the machine.
 | zstd | [`zstd-windows.yml`](.github/workflows/zstd-windows.yml) | [`zstd-macos.yml`](.github/workflows/zstd-macos.yml) |
 | lz4 | [`lz4-windows.yml`](.github/workflows/lz4-windows.yml) | [`lz4-macos.yml`](.github/workflows/lz4-macos.yml) |
 | zlib | [`zlib-windows.yml`](.github/workflows/zlib-windows.yml) | system |
-| ICU | [`icu-windows.yml`](.github/workflows/icu-windows.yml) | not yet built |
-| gettext | [`gettext-windows.yml`](.github/workflows/gettext-windows.yml) | not yet built |
-| libiconv | [`libiconv-windows.yml`](.github/workflows/libiconv-windows.yml) | system |
-| libxml2 | [`libxml2-windows.yml`](.github/workflows/libxml2-windows.yml) | not yet built |
-| libxslt | [`libxslt-windows.yml`](.github/workflows/libxslt-windows.yml) | not yet built |
-| ossp-uuid | [`ossp-uuid-windows.yml`](.github/workflows/ossp-uuid-windows.yml) | not yet built |
+| ICU | [`icu-windows.yml`](.github/workflows/icu-windows.yml) | [`icu-macos.yml`](.github/workflows/icu-macos.yml) |
+| gettext | [`gettext-windows.yml`](.github/workflows/gettext-windows.yml) | [`gettext-macos.yml`](.github/workflows/gettext-macos.yml) |
+| libiconv | [`libiconv-windows.yml`](.github/workflows/libiconv-windows.yml) | [`libiconv-macos.yml`](.github/workflows/libiconv-macos.yml) |
+| libxml2 | [`libxml2-windows.yml`](.github/workflows/libxml2-windows.yml) | [`libxml2-macos.yml`](.github/workflows/libxml2-macos.yml) |
+| libxslt | [`libxslt-windows.yml`](.github/workflows/libxslt-windows.yml) | [`libxslt-macos.yml`](.github/workflows/libxslt-macos.yml) |
+| ossp-uuid | [`ossp-uuid-windows.yml`](.github/workflows/ossp-uuid-windows.yml) | [`ossp-uuid-macos.yml`](.github/workflows/ossp-uuid-macos.yml) |
 
 ### Build tools
 
@@ -103,16 +103,24 @@ fetch a single file than assemble one.
 | Dependency bundle | [`bundle-deps-windows.yml`](.github/workflows/bundle-deps-windows.yml) | not yet built |
 
 "system" means the copy in macOS itself, in `/usr/lib`, which PostgreSQL links
-directly. It does not mean Homebrew. Nothing here depends on Homebrew being
+directly, and it is a claim about that one package rather than about the
+platform: what macOS provides is not always the same library by another name.
+libiconv was listed as system until gettext proved otherwise, macOS shipping an
+iconv of its own that is not GNU libiconv, and gettext needing the GNU one to
+link `libtextstyle`. It is built here now like anything else. zlib is still
+genuinely the system copy, nothing so far having shown it to be anything but.
+
+"system" does not mean Homebrew. Nothing here depends on Homebrew being
 installed, deliberately: the point of publishing these builds is that they work
 for somebody using MacPorts or Fink, or nothing at all. The macOS PostgreSQL
 build goes further and puts its own include directories ahead of Homebrew's, so
 that a runner image which happens to ship Homebrew copies of zstd and lz4
 cannot quietly get them compiled in.
 
-ICU is the one to watch there: the macOS build currently configures
-`--without-icu`, so adding it means building our own and turning the flag
-round, not linking whatever the machine happens to have.
+ICU is the one that had to be built before it could be used: the macOS
+PostgreSQL build was configured `--without-icu` whilst there was no ICU of ours
+to link, and now that `icu-macos.yml` builds one it configures `--with-icu`
+against that, rather than against whatever the machine happens to have.
 
 ## Layout
 
@@ -125,7 +133,7 @@ is named `<package>-<platform>.yml`, giving `openssl-windows.yml`,
 |----------|--------------|
 | `build-all.yml` | Convenience dispatcher; starts both orchestrators and returns |
 | `build-all-windows.yml` | Windows DAG, calling the 19 Windows leaves in dependency order |
-| `build-all-macos.yml` | macOS DAG, calling the 5 macOS leaves in dependency order |
+| `build-all-macos.yml` | macOS DAG, calling the 11 macOS leaves in dependency order |
 | `manifest.yml` | Reusable workflow that reads pinned versions out of `manifest.json` |
 | `<package>-windows.yml` | One Windows package |
 | `<package>-macos.yml` | One macOS package, built for both architectures |
@@ -147,8 +155,8 @@ Windows leaves plus `manifest.yml`. It is full, and adding a twentieth Windows
 package will mean breaking it into staged orchestrators dispatched through the
 API rather than called with `uses:`.
 
-`build-all-macos.yml` comes to 6, being its 5 macOS leaves plus `manifest.yml`,
-so there is plenty of room on that side.
+`build-all-macos.yml` comes to 12, being its 11 macOS leaves plus
+`manifest.yml`, so there is plenty of room on that side.
 
 Splitting the platforms apart is what keeps either tree buildable, since a
 single combined orchestrator would have come to 25. It is also why
@@ -337,8 +345,8 @@ to provide your own `manifest.json`.
 ### macOS
 
 Configured with `--with-openssl`, `--with-gssapi`, `--with-zstd`, `--with-lz4`
-and `--without-icu`, against the OpenSSL, MIT Kerberos, zstd and lz4 trees built
-by the other four macOS workflows.
+and `--with-icu`, against the OpenSSL, MIT Kerberos, zstd, lz4 and ICU trees
+built by the other macOS workflows.
 
 The two compression options are new relative to the Jenkins jobs, which had
 neither, and they close
@@ -390,11 +398,12 @@ that largely evaporate on macOS, where Bonjour is native and libedit ships with
 the system; neither is currently requested by the macOS `configure` line. LLVM,
 and so JIT compilation, is absent from both.
 
-ICU is not a gap so much as a deliberate difference. The Windows side builds it
-and links against it, named explicitly in `config.pl` for the MSVC builds and
-picked up through pkg-config for the Meson ones, and ships the ICU DLLs
-alongside the binaries; the macOS build passes `--without-icu` and does not
-build it at all.
+NLS, XML, XSLT and the `uuid-ossp` extension are configured on Windows but not
+on macOS, even though gettext, libiconv, libxml2, libxslt and ossp-uuid are now
+built there. The libraries came first because they are worth publishing whether or
+not PostgreSQL links them; asking the macOS `configure` line for them changes
+what the PostgreSQL build produces, and is a separate decision that has not
+been taken.
 
 ## Roadmap
 

@@ -102,6 +102,8 @@ jobs:
           Compress-Archive /zlib /zlib-windows-x86_64-latest.zip
           
       - name: Delete Existing Release
+        # Only from the default branch; see the macOS leaves for why.
+        if: github.ref == 'refs/heads/main'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -109,6 +111,8 @@ jobs:
           gh release delete "zlib-windows-x86_64-latest" --repo "${{ github.repository }}" --cleanup-tag --yes || true
 
       - name: Create Release
+        # Only from the default branch; see the macOS leaves for why.
+        if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v3
         with:
           tag_name: "zlib-windows-x86_64-latest"
