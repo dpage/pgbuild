@@ -18,6 +18,15 @@ env:
   LDFLAGS: '-Wl,-headerpad_max_install_names'
   PGBUILD_PREFIX: /opt/pgbuild
 
+# Declared rather than inherited. A called workflow runs with the CALLER's
+# permissions, and a push-triggered run does not get the same default token
+# as a scheduled or dispatched one: every push-triggered run of this
+# orchestrator failed at Create Release with 403 whilst every scheduled one
+# succeeded, and because the Windows leaves delete before they create, each
+# failure left no release at all until the next schedule repaired it.
+permissions:
+  contents: write
+
 jobs:
   get-versions:
     uses: ./.github/workflows/manifest.yml
