@@ -1,10 +1,10 @@
 # pgbuild
 
 GitHub Actions workflows that build PostgreSQL and its dependencies for the
-pgAdmin build farm, on both Windows and macOS. The Windows side also packages a
-handful of build tools, namely Meson, Ninja, pkgconf, winflexbison and
-diffutils, so that its builds are reproducible; most of those are downloaded as
-pre-built utilities rather than compiled here.
+pgAdmin build farm, on both Windows and macOS. A few build tools are packaged
+alongside them, being Meson, Ninja, pkgconf, winflexbison and diffutils on
+Windows and Meson and Ninja on macOS; most of those are downloaded as pre-built
+utilities rather than compiled here.
 
 This repository began life as [dpage/winpgbuild](https://github.com/dpage/winpgbuild),
 which built the Windows side only, and its history is preserved here. The macOS
@@ -80,17 +80,20 @@ same everywhere and does not vary with the machine.
 
 ### Build tools
 
-Needed to build the libraries on Windows, where they are not otherwise to
-hand. Mostly repackaged pre-built utilities rather than compiled here.
-winflexbison is the exception to the catch-up: it is a Windows port of flex
-and bison, so there is nothing to port on macOS.
+Needed to run the builds rather than shipped by them, and mostly repackaged
+pre-built utilities rather than compiled here. Windows packages all of them
+because it has none of them to hand; macOS takes from the runner those whose
+version makes no difference to the output, and packages Meson, whose version
+does, with Ninja beside it because Meson has no other backend. winflexbison is
+the exception to the catch-up: it is a Windows port of flex and bison, so there
+is nothing to port on macOS.
 
 | Package | Windows | macOS |
 |---------|---------|-------|
-| diffutils | [`diffutils-windows.yml`](.github/workflows/diffutils-windows.yml) | not yet built |
-| Meson | [`meson-windows.yml`](.github/workflows/meson-windows.yml) | not yet built |
-| Ninja | [`ninja-windows.yml`](.github/workflows/ninja-windows.yml) | not yet built |
-| pkgconf | [`pkgconf-windows.yml`](.github/workflows/pkgconf-windows.yml) | not yet built |
+| diffutils | [`diffutils-windows.yml`](.github/workflows/diffutils-windows.yml) | Homebrew |
+| Meson | [`meson-windows.yml`](.github/workflows/meson-windows.yml) | [`meson-macos.yml`](.github/workflows/meson-macos.yml) |
+| Ninja | [`ninja-windows.yml`](.github/workflows/ninja-windows.yml) | [`ninja-macos.yml`](.github/workflows/ninja-macos.yml) |
+| pkgconf | [`pkgconf-windows.yml`](.github/workflows/pkgconf-windows.yml) | Homebrew |
 | winflexbison | [`winflexbison-windows.yml`](.github/workflows/winflexbison-windows.yml) | Windows only |
 
 ### Bundles
@@ -100,7 +103,12 @@ fetch a single file than assemble one.
 
 | Package | Windows | macOS |
 |---------|---------|-------|
-| Dependency bundle | [`bundle-deps-windows.yml`](.github/workflows/bundle-deps-windows.yml) | not yet built |
+| Dependency bundle | [`bundle-deps-windows.yml`](.github/workflows/bundle-deps-windows.yml) | [`bundle-deps-macos.yml`](.github/workflows/bundle-deps-macos.yml) |
+
+The two bundles do not hold quite the same thing. The Windows one carries the
+build tools as well as the libraries, because unpacking it is how a Windows
+machine acquires a Meson, a Ninja and a pkgconf at all; the macOS one carries
+libraries only, for the reason given below.
 
 "system" means the copy in macOS itself, in `/usr/lib`, which PostgreSQL links
 directly, and it is a claim about that one package rather than about the
@@ -116,6 +124,28 @@ for somebody using MacPorts or Fink, or nothing at all. The macOS PostgreSQL
 build goes further and puts its own include directories ahead of Homebrew's, so
 that a runner image which happens to ship Homebrew copies of zstd and lz4
 cannot quietly get them compiled in.
+
+"Homebrew" in the build tools table is the other half of that same policy
+rather than a contradiction of it, and what separates the two is whether the
+software ends up inside a release asset. A library does, since anybody linking
+against these builds gets whatever we linked, so it has to come from a source
+we control. A build tool does not: it is used during the build and then thrown
+away, and which pkgconf or diffutils the runner happened to provide makes no
+difference to what anyone downloads. Taking those from Homebrew on the runner
+therefore costs a consumer on MacPorts, on Fink or on nothing at all precisely
+nothing, whereas taking a library from it would cost them the build.
+
+Meson is the tool held to the library standard, not because it ships but
+because it generates PostgreSQL's build system, so which Meson generated a
+build is part of what makes that build reproducible; that is why its version is
+pinned in `manifest.json` like a library's and built here rather than taken from
+the runner. Ninja is built alongside it only because Meson has no other backend.
+Neither is used by anything in this repository today, the macOS PostgreSQL build
+being configured with `./configure` rather than Meson; they are published so
+that a pinned Meson is to hand if that changes, and for anyone else who wants
+one. That is also why the macOS dependency bundle leaves them out: it is the set
+of libraries in one archive, and mixing tooling into it would blur the line the
+rest of this section draws.
 
 ICU is the one that had to be built before it could be used: the macOS
 PostgreSQL build was configured `--without-icu` whilst there was no ICU of ours
@@ -133,7 +163,7 @@ is named `<package>-<platform>.yml`, giving `openssl-windows.yml`,
 |----------|--------------|
 | `build-all.yml` | Convenience dispatcher; starts both orchestrators and returns |
 | `build-all-windows.yml` | Windows DAG, calling the 19 Windows leaves in dependency order |
-| `build-all-macos.yml` | macOS DAG, calling the 11 macOS leaves in dependency order |
+| `build-all-macos.yml` | macOS DAG, calling the 14 macOS leaves in dependency order |
 | `manifest.yml` | Reusable workflow that reads pinned versions out of `manifest.json` |
 | `<package>-windows.yml` | One Windows package |
 | `<package>-macos.yml` | One macOS package, built for both architectures |
@@ -155,13 +185,13 @@ Windows leaves plus `manifest.yml`. It is full, and adding a twentieth Windows
 package will mean breaking it into staged orchestrators dispatched through the
 API rather than called with `uses:`.
 
-`build-all-macos.yml` comes to 12, being its 11 macOS leaves plus
-`manifest.yml`, so there is plenty of room on that side.
+`build-all-macos.yml` comes to 15, being its 14 macOS leaves plus
+`manifest.yml`, so there is still room on that side.
 
 Splitting the platforms apart is what keeps either tree buildable, since a
-single combined orchestrator would have come to 25. It is also why
+single combined orchestrator would today come to 34. It is also why
 `build-all.yml` dispatches the two orchestrators through the API instead of
-calling them: calling them would nest their trees inside its own, reaching 27,
+calling them: calling them would nest their trees inside its own, reaching 36,
 and the run would be rejected outright.
 
 ## Platforms and architectures
@@ -193,6 +223,8 @@ postgresql-18-windows-x86_64-latest
 postgresql-18-macos-arm64-latest
 postgresql-18-macos-x86_64-latest
 dependencies-windows-x86_64-latest
+dependencies-macos-arm64-latest
+dependencies-macos-x86_64-latest
 ```
 
 Build artefacts follow the same scheme with the full version in place of
@@ -230,7 +262,7 @@ inside its own install tree, generated from `manifest.json` at the commit being
 built, so the package name, version, upstream homepage and SPDX licence
 expression travel inside the artifact. Because the manifest lands in the
 install tree rather than beside it, a bundler that simply extracts its
-dependencies' artifacts, as `bundle-deps-windows.yml` does, collects their
+dependencies' artifacts, as both `bundle-deps-*` workflows do, collects their
 manifests for free; the two PostgreSQL workflows additionally copy the
 dependency manifests alongside their own. A downstream consumer can therefore
 read the licence position out of the tarball or zip without coming back here.

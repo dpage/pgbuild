@@ -5,7 +5,7 @@ name: Build All (macOS)
 # demand via workflow_dispatch / workflow_call.
 #
 # GitHub Actions limits a workflow to 20 unique reusable workflows in its full
-# call tree. This orchestrator uses 12 of them: the eleven macOS leaves plus
+# call tree. This orchestrator uses 15 of them: the fourteen macOS leaves plus
 # manifest.yml, which every leaf calls and which counts only once. The Windows
 # orchestrator is already at 20, which is precisely why the two platforms have
 # an orchestrator each rather than sharing one.
@@ -53,6 +53,15 @@ jobs:
   libxml2:
     uses: ./.github/workflows/libxml2-macos.yml
 
+  # Build tooling, and nothing here needs it: the macOS PostgreSQL build
+  # configures with ./configure rather than Meson. Both are built so that a
+  # version-pinned copy exists for whoever wants one, and they sit in tier 0
+  # because no job downstream of them waits on either.
+  meson:
+    uses: ./.github/workflows/meson-macos.yml
+  ninja:
+    uses: ./.github/workflows/ninja-macos.yml
+
   # Tier 1
   gettext:
     needs: [libiconv]
@@ -67,3 +76,21 @@ jobs:
   postgresql:
     needs: [openssl, krb5, zstd, lz4, icu]
     uses: ./.github/workflows/postgresql-macos.yml
+
+  # The bundle waits on every library, since it is the whole set in one
+  # archive. It is not upstream of PostgreSQL, unlike the Windows arrangement:
+  # postgresql-macos.yml picks up the five libraries it links as individual
+  # artifacts, so making it wait for the bundle as well would only delay it.
+  bundle-deps:
+    needs:
+      - openssl
+      - krb5
+      - zstd
+      - lz4
+      - icu
+      - libiconv
+      - ossp-uuid
+      - libxml2
+      - gettext
+      - libxslt
+    uses: ./.github/workflows/bundle-deps-macos.yml

@@ -8,7 +8,7 @@ name: Build All
 # GitHub Actions counts unique reusable workflows across a whole call tree and
 # caps it at 20, and build-all-windows.yml alone already reaches that cap with
 # its 19 leaves plus manifest.yml; calling both orchestrators from here would
-# come to 27 and the run would be rejected outright. Dispatching them through
+# come to 36 and the run would be rejected outright. Dispatching them through
 # the API starts two independent runs instead, each with its own call tree, at
 # the cost of this job finishing immediately rather than waiting for them.
 
