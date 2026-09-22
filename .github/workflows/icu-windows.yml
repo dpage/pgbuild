@@ -118,6 +118,22 @@ jobs:
         run: |
           Compress-Archive /icu /icu-windows-x86_64-latest.zip
           
+      # A checksum beside the archive, in sha256sum's own format, which is the
+      # digest and two spaces and the bare file name, so that whoever has
+      # downloaded the pair can run `shasum -c` over them unedited. It is
+      # written with an explicit LF rather than the CRLF PowerShell would
+      # otherwise leave, because the carriage return would end up as part of
+      # the name shasum then went looking for.
+      - name: Checksum Release Assets
+        id: checksum
+        shell: pwsh
+        run: |
+          $archive = '/icu-windows-x86_64-latest.zip'
+          $name = Split-Path -Leaf $archive
+          $hash = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLower()
+          Set-Content -Path "$archive.sha256" -Value "$hash  $name`n" -NoNewline
+          Write-Output "sha256=$hash" >> $Env:GITHUB_OUTPUT
+
       # The tag is moved rather than the release deleted and remade.
       # Deleting first meant that any failure in the step below, whether
       # permissions, a rate limit or a network blip, left no release at
@@ -146,5 +162,77 @@ jobs:
           target_commitish: ${{ github.sha }}
           name: "icu (Windows x86_64)"
           prerelease: true
+          body: |
+            Upstream version: ${{ env.ICU_VERSION }}
+
+                ${{ steps.checksum.outputs.sha256 }}  icu-windows-x86_64-latest.zip
           files: |
             /icu-windows-x86_64-latest.zip
+            /icu-windows-x86_64-latest.zip.sha256
+
+      # The rolling release above says what is newest; this one says what a
+      # given upstream version was. Anything that pins a digest needs the
+      # latter, because the -latest asset is clobbered by the next build and
+      # the bytes somebody pinned this morning are gone by tomorrow. It is
+      # created the first time a version is built and never touched again, so
+      # it costs a release creation when the upstream version changes rather
+      # than nightly, which is a small fraction of the load the macOS leaves
+      # warn about.
+      - name: Prepare the Immutable Release
+        if: github.ref == 'refs/heads/main'
+        id: immutable
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # An absent release is the ordinary case here rather than an error,
+          # so the pwsh default of turning a non-zero exit from a native
+          # command into a terminating one has to be out of the way.
+          $ErrorActionPreference = 'Continue'
+          $PSNativeCommandUseErrorActionPreference = $false
+
+          $tag = 'icu-${{ env.ICU_VERSION }}-windows-x86_64'
+          gh release view $tag --repo $Env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) {
+              # Immutable means immutable: a rebuild of a version that has
+              # already been published is precisely the case this exists for,
+              # so nothing is uploaded over it.
+              Write-Output "$tag exists already, so this version has been"
+              Write-Output "published before and is being left exactly as"
+              Write-Output "it is. To republish it, because the build"
+              Write-Output "changed rather than the upstream release,"
+              Write-Output "delete that release and its tag by hand, then"
+              Write-Output "run this workflow again."
+              Write-Output "publish=false" >> $Env:GITHUB_OUTPUT
+              exit 0
+          }
+
+          # Named after this release's own tag rather than after the rolling
+          # one, so that <tag>/<tag>.zip fetches it the way every other archive
+          # here is fetched, and so that a copy found on a disk a week later
+          # says what it is. The bytes are the rolling release's exactly, so
+          # the digest is the same digest; all that differs is the file name
+          # recorded beside it, which is the name `shasum -c` goes looking for.
+          $copy = "/$tag.zip"
+          Copy-Item -LiteralPath '/icu-windows-x86_64-latest.zip' -Destination $copy -Force
+          $hash = (Get-FileHash -Algorithm SHA256 $copy).Hash.ToLower()
+          Set-Content -Path "$copy.sha256" -Value "$hash  $tag.zip`n" -NoNewline
+          Write-Output "sha256=$hash" >> $Env:GITHUB_OUTPUT
+          Write-Output "publish=true" >> $Env:GITHUB_OUTPUT
+          exit 0
+
+      - name: Create Immutable Release
+        if: github.ref == 'refs/heads/main' && steps.immutable.outputs.publish == 'true'
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: "icu-${{ env.ICU_VERSION }}-windows-x86_64"
+          target_commitish: ${{ github.sha }}
+          name: "icu ${{ env.ICU_VERSION }} (Windows x86_64)"
+          prerelease: true
+          body: |
+            Upstream version: ${{ env.ICU_VERSION }}
+
+                ${{ steps.immutable.outputs.sha256 }}  icu-${{ env.ICU_VERSION }}-windows-x86_64.zip
+          files: |
+            /icu-${{ env.ICU_VERSION }}-windows-x86_64.zip
+            /icu-${{ env.ICU_VERSION }}-windows-x86_64.zip.sha256

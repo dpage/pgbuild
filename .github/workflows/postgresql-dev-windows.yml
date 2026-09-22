@@ -1,5 +1,10 @@
 name: Build PostgreSQL (Dev) (Windows)
 
+# There is no immutable per-version companion to this release, as there is for
+# the per-package ones, because this tracks a branch rather than a release:
+# "master" names different code every day, so a tag carrying it would be a
+# promise the build cannot keep.
+
 on:
   workflow_dispatch:
   workflow_call:
@@ -279,6 +284,22 @@ jobs:
         run: |
           Compress-Archive /postgresql /postgresql-${{ env.POSTGRESQL-DEV_VERSION }}-windows-x86_64-latest.zip
           
+      # A checksum beside the archive, in sha256sum's own format, which is the
+      # digest and two spaces and the bare file name, so that whoever has
+      # downloaded the pair can run `shasum -c` over them unedited. It is
+      # written with an explicit LF rather than the CRLF PowerShell would
+      # otherwise leave, because the carriage return would end up as part of
+      # the name shasum then went looking for.
+      - name: Checksum Release Assets
+        id: checksum
+        shell: pwsh
+        run: |
+          $archive = '/postgresql-${{ env.POSTGRESQL-DEV_VERSION }}-windows-x86_64-latest.zip'
+          $name = Split-Path -Leaf $archive
+          $hash = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLower()
+          Set-Content -Path "$archive.sha256" -Value "$hash  $name`n" -NoNewline
+          Write-Output "sha256=$hash" >> $Env:GITHUB_OUTPUT
+
       # The tag is moved rather than the release deleted and remade.
       # Deleting first meant that any failure in the step below, whether
       # permissions, a rate limit or a network blip, left no release at
@@ -307,5 +328,10 @@ jobs:
           target_commitish: ${{ github.sha }}
           name: "PostgreSQL ${{ env.POSTGRESQL-DEV_VERSION }} (Windows x86_64)"
           prerelease: true
+          body: |
+            Upstream version: ${{ env.POSTGRESQL-DEV_VERSION }}
+
+                ${{ steps.checksum.outputs.sha256 }}  postgresql-${{ env.POSTGRESQL-DEV_VERSION }}-windows-x86_64-latest.zip
           files: |
             /postgresql-${{ env.POSTGRESQL-DEV_VERSION }}-windows-x86_64-latest.zip
+            /postgresql-${{ env.POSTGRESQL-DEV_VERSION }}-windows-x86_64-latest.zip.sha256

@@ -13,6 +13,11 @@ name: Bundle dependencies (macOS)
 # make the one archive we ask people to trust a mixture of the two.
 # meson-macos.yml and ninja-macos.yml publish their own releases for anyone
 # who does want a pinned copy.
+#
+# There is no immutable per-version companion to this release, as there is for
+# the per-package ones, because a bundle has no single upstream version to name
+# a tag after, and everything in it is already published immutably by the
+# workflow that built it. Anything that needs to pin a digest should pin those.
 
 on:
   workflow_dispatch:
@@ -190,6 +195,15 @@ jobs:
           tar -czf "${RUNNER_TEMP}/dependencies-macos-${ARCH}-latest.tar.gz" \
               -C "${PGBUILD_PREFIX}" ${PACKAGES}
 
+          # A checksum beside the archive, in sha256sum's own format so that
+          # whoever has downloaded the pair can run `shasum -c` over them
+          # unedited, and written from the archive's own directory so that the
+          # name recorded in it is the bare file name rather than a path off
+          # this runner.
+          cd "${RUNNER_TEMP}"
+          shasum -a 256 "dependencies-macos-${ARCH}-latest.tar.gz" \
+              > "dependencies-macos-${ARCH}-latest.tar.gz.sha256"
+
       - name: Upload Binaries
         uses: actions/upload-artifact@v7
         with:
@@ -212,8 +226,26 @@ jobs:
           TAG: dependencies-macos-${{ matrix.arch }}-latest
           TITLE: PostgreSQL Dependencies (macOS ${{ matrix.arch }})
           ASSET: ${{ runner.temp }}/dependencies-macos-${{ matrix.arch }}-latest.tar.gz
+          CHECKSUM: ${{ runner.temp }}/dependencies-macos-${{ matrix.arch }}-latest.tar.gz.sha256
+          VERSION: >-
+            gettext ${{ env.GETTEXT_VERSION }},
+            icu ${{ env.ICU_VERSION }}, krb5 ${{ env.KRB5_VERSION }},
+            libiconv ${{ env.LIBICONV_VERSION }},
+            libxml2 ${{ env.LIBXML2_VERSION }},
+            libxslt ${{ env.LIBXSLT_VERSION }},
+            lz4 ${{ env.LZ4_VERSION }},
+            openssl ${{ env.OPENSSL_VERSION }},
+            ossp-uuid ${{ env.OSSP_UUID_VERSION }},
+            zstd ${{ env.ZSTD_VERSION }}
         run: |
           set -euo pipefail
+
+          # Stated on the release itself, so that the version built and the
+          # digest published can both be read off the release page: a rolling
+          # tag gives a reader nothing else to go on, and downloading the
+          # asset in order to find out what it is rather defeats the purpose.
+          NOTES="$(printf 'Upstream versions: %s\n\n    %s\n' \
+              "${VERSION}" "$(cat "${CHECKSUM}")")"
 
           # True only when the release exists and is not a draft, since a draft
           # has no tag behind it and so cannot be downloaded by tag, however
@@ -235,15 +267,17 @@ jobs:
                       -f sha="${GITHUB_SHA}" -F force=true >/dev/null 2>&1 \
                       || true
                   gh release edit "${TAG}" --repo "${GITHUB_REPOSITORY}" \
-                      --title "${TITLE}" --prerelease --draft=false \
+                      --title "${TITLE}" --notes "${NOTES}" \
+                      --prerelease --draft=false \
                       >/dev/null &&
-                  gh release upload "${TAG}" "${ASSET}" \
+                  gh release upload "${TAG}" "${ASSET}" "${CHECKSUM}" \
                       --repo "${GITHUB_REPOSITORY}" --clobber
               else
-                  gh release create "${TAG}" "${ASSET}" \
+                  gh release create "${TAG}" "${ASSET}" "${CHECKSUM}" \
                       --repo "${GITHUB_REPOSITORY}" \
                       --target "${GITHUB_SHA}" \
                       --title "${TITLE}" \
+                      --notes "${NOTES}" \
                       --prerelease
               fi
           }

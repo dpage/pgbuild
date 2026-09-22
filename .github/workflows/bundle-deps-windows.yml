@@ -1,5 +1,12 @@
 name: Bundle dependencies (Windows)
 
+# There is no immutable per-version companion to this release, as there is for
+# the per-package ones, because a bundle has no single upstream version to name
+# a tag after. The libraries in it are published immutably by the workflows
+# that build them, so anything needing to pin a digest should pin those, whilst
+# the build tooling bundled alongside them is an input to a build rather than
+# something that is shipped and signed.
+
 on:
   workflow_dispatch:
   workflow_call:
@@ -159,6 +166,22 @@ jobs:
         run: |
           Compress-Archive /builddeps /postgresql-dependencies-windows-x86_64-latest.zip
           
+      # A checksum beside the archive, in sha256sum's own format, which is the
+      # digest and two spaces and the bare file name, so that whoever has
+      # downloaded the pair can run `shasum -c` over them unedited. It is
+      # written with an explicit LF rather than the CRLF PowerShell would
+      # otherwise leave, because the carriage return would end up as part of
+      # the name shasum then went looking for.
+      - name: Checksum Release Assets
+        id: checksum
+        shell: pwsh
+        run: |
+          $archive = '/postgresql-dependencies-windows-x86_64-latest.zip'
+          $name = Split-Path -Leaf $archive
+          $hash = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLower()
+          Set-Content -Path "$archive.sha256" -Value "$hash  $name`n" -NoNewline
+          Write-Output "sha256=$hash" >> $Env:GITHUB_OUTPUT
+
       # The tag is moved rather than the release deleted and remade.
       # Deleting first meant that any failure in the step below, whether
       # permissions, a rate limit or a network blip, left no release at
@@ -187,5 +210,22 @@ jobs:
           target_commitish: ${{ github.sha }}
           name: "PostgreSQL Dependencies (Windows x86_64)"
           prerelease: true
+          body: |
+            Upstream versions: diffutils ${{ env.DIFFUTILS_VERSION }},
+            gettext ${{ env.GETTEXT_VERSION }},
+            icu ${{ env.ICU_VERSION }}, krb5 ${{ env.KRB5_VERSION }},
+            libiconv ${{ env.LIBICONV_VERSION }},
+            libxml2 ${{ env.LIBXML2_VERSION }},
+            libxslt ${{ env.LIBXSLT_VERSION }},
+            lz4 ${{ env.LZ4_VERSION }}, meson ${{ env.MESON_VERSION }},
+            ninja ${{ env.NINJA_VERSION }},
+            openssl ${{ env.OPENSSL_VERSION }},
+            ossp-uuid ${{ env.OSSP-UUID_VERSION }},
+            pkgconf ${{ env.PKGCONF_VERSION }},
+            winflexbison ${{ env.WINFLEXBISON_VERSION }},
+            zlib ${{ env.ZLIB_VERSION }}, zstd ${{ env.ZSTD_VERSION }}
+
+                ${{ steps.checksum.outputs.sha256 }}  postgresql-dependencies-windows-x86_64-latest.zip
           files: |
             /postgresql-dependencies-windows-x86_64-latest.zip
+            /postgresql-dependencies-windows-x86_64-latest.zip.sha256

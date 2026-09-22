@@ -116,6 +116,15 @@ jobs:
           tar -czf "${RUNNER_TEMP}/icu-macos-${{ matrix.arch }}-latest.tar.gz" \
               -C "${PGBUILD_PREFIX}" icu
 
+          # A checksum beside the archive, in sha256sum's own format so that
+          # whoever has downloaded the pair can run `shasum -c` over them
+          # unedited, and written from the archive's own directory so that the
+          # name recorded in it is the bare file name rather than a path off
+          # this runner.
+          cd "${RUNNER_TEMP}"
+          shasum -a 256 "icu-macos-${{ matrix.arch }}-latest.tar.gz" \
+              > "icu-macos-${{ matrix.arch }}-latest.tar.gz.sha256"
+
       - name: Upload Binaries
         uses: actions/upload-artifact@v7
         with:
@@ -146,8 +155,17 @@ jobs:
           TAG: icu-macos-${{ matrix.arch }}-latest
           TITLE: ICU (macOS ${{ matrix.arch }})
           ASSET: ${{ runner.temp }}/icu-macos-${{ matrix.arch }}-latest.tar.gz
+          CHECKSUM: ${{ runner.temp }}/icu-macos-${{ matrix.arch }}-latest.tar.gz.sha256
+          VERSION: ${{ env.ICU_VERSION }}
         run: |
           set -euo pipefail
+
+          # Stated on the release itself, so that the version built and the
+          # digest published can both be read off the release page: a rolling
+          # tag gives a reader nothing else to go on, and downloading the
+          # asset in order to find out what it is rather defeats the purpose.
+          NOTES="$(printf 'Upstream version: %s\n\n    %s\n' \
+              "${VERSION}" "$(cat "${CHECKSUM}")")"
 
           # True only when the release exists and is not a draft, since a draft
           # has no tag behind it and so cannot be downloaded by tag, however
@@ -169,15 +187,17 @@ jobs:
                       -f sha="${GITHUB_SHA}" -F force=true >/dev/null 2>&1 \
                       || true
                   gh release edit "${TAG}" --repo "${GITHUB_REPOSITORY}" \
-                      --title "${TITLE}" --prerelease --draft=false \
+                      --title "${TITLE}" --notes "${NOTES}" \
+                      --prerelease --draft=false \
                       >/dev/null &&
-                  gh release upload "${TAG}" "${ASSET}" \
+                  gh release upload "${TAG}" "${ASSET}" "${CHECKSUM}" \
                       --repo "${GITHUB_REPOSITORY}" --clobber
               else
-                  gh release create "${TAG}" "${ASSET}" \
+                  gh release create "${TAG}" "${ASSET}" "${CHECKSUM}" \
                       --repo "${GITHUB_REPOSITORY}" \
                       --target "${GITHUB_SHA}" \
                       --title "${TITLE}" \
+                      --notes "${NOTES}" \
                       --prerelease
               fi
           }
@@ -201,4 +221,78 @@ jobs:
           done
 
           echo "Giving up on ${TAG} after 8 attempts" >&2
+          exit 1
+
+      # The rolling release above says what is newest; this one says what a
+      # given upstream version was. Anything that pins a digest needs the
+      # latter, because the -latest asset is clobbered by the next build and
+      # the bytes somebody pinned this morning are gone by tomorrow. It is
+      # created the first time a version is built and never touched again, so
+      # it costs a release creation when the upstream version changes rather
+      # than nightly, which is a small fraction of the load the comment above
+      # is about.
+      - name: Publish Immutable Release
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: icu-${{ env.ICU_VERSION }}-macos-${{ matrix.arch }}
+          TITLE: ICU ${{ env.ICU_VERSION }} (macOS ${{ matrix.arch }})
+          VERSION: ${{ env.ICU_VERSION }}
+          ASSET: ${{ runner.temp }}/icu-macos-${{ matrix.arch }}-latest.tar.gz
+        run: |
+          set -euo pipefail
+
+          # Immutable means immutable: a rebuild of a version that has already
+          # been published is precisely the case this exists for, so nothing
+          # is uploaded over it. Should one genuinely need republishing,
+          # because the build changed rather than the upstream release, that
+          # is a deliberate act rather than something to automate.
+          if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" \
+                  >/dev/null 2>&1; then
+              echo "${TAG} exists already, so this version has been published"
+              echo "before and is being left exactly as it is. To republish"
+              echo "it, delete that release and its tag by hand, then run this"
+              echo "workflow again."
+              exit 0
+          fi
+
+          # Named after this release's own tag rather than after the rolling
+          # one, so that <tag>/<tag>.tar.gz fetches it the way every other
+          # archive here is fetched, and so that a copy found on a disk a week
+          # later says what it is. The bytes are the rolling release's exactly,
+          # so the digest is the same digest; all that differs is the file name
+          # recorded beside it, which is the name `shasum -c` goes looking for.
+          cd "${RUNNER_TEMP}"
+          cp "${ASSET}" "${TAG}.tar.gz"
+          shasum -a 256 "${TAG}.tar.gz" > "${TAG}.tar.gz.sha256"
+
+          NOTES="$(printf 'Upstream version: %s\n\n    %s\n' \
+              "${VERSION}" "$(cat "${TAG}.tar.gz.sha256")")"
+
+          # The same generous back-off as the rolling release, and for the
+          # same reason. Failing here leaves that release alone, since it has
+          # already published and nothing in this step touches it.
+          for attempt in 1 2 3 4 5 6 7 8; do
+              if gh release create "${TAG}" \
+                      "${TAG}.tar.gz" "${TAG}.tar.gz.sha256" \
+                      --repo "${GITHUB_REPOSITORY}" \
+                      --target "${GITHUB_SHA}" \
+                      --title "${TITLE}" \
+                      --notes "${NOTES}" \
+                      --prerelease; then
+                  echo "Published ${TAG}"
+                  exit 0
+              fi
+
+              delay=$((attempt * 60))
+              if [ "${delay}" -gt 300 ]; then
+                  delay=300
+              fi
+              echo "Publishing ${TAG} failed on attempt ${attempt};" \
+                   "retrying in ${delay}s"
+              sleep "${delay}"
+          done
+
+          echo "Giving up on ${TAG} after 8 attempts; the rolling release" >&2
+          echo "published above is unaffected." >&2
           exit 1
