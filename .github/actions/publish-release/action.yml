@@ -23,8 +23,18 @@ inputs:
     description: The rolling release's title, e.g. zstd (macOS arm64).
     required: true
   version:
-    description: The upstream version, stated in the release notes.
-    required: true
+    description: >
+      The upstream version, stated in the release notes as "Upstream version:
+      <version>". Required unless notes is given.
+    required: false
+    default: ''
+  notes:
+    description: >
+      Used in place of the "Upstream version" line, for the bundles, which
+      have a version per package rather than one. The checksum line follows
+      it either way.
+    required: false
+    default: ''
   immutable-tag:
     description: >
       The immutable release's tag, e.g. zstd-1.5.7-macos-arm64. Empty skips
@@ -68,10 +78,21 @@ runs:
         TAG: ${{ inputs.tag }}
         TITLE: ${{ inputs.title }}
         VERSION: ${{ inputs.version }}
+        NOTES: ${{ inputs.notes }}
         IMMUTABLE_TAG: ${{ inputs.immutable-tag }}
         IMMUTABLE_TITLE: ${{ inputs.immutable-title }}
       run: |
         set -euo pipefail
+
+        if [ -z "${NOTES}" ]; then
+            if [ -z "${VERSION}" ]; then
+                echo "One of version or notes must be given" >&2
+                exit 1
+            fi
+            NOTES="Upstream version: ${VERSION}"
+        fi
+        # A block scalar's final newline would otherwise add a blank line.
+        NOTES="${NOTES%$'\n'}"
 
         if [ -n "${IMMUTABLE_TAG}" ] && [ -z "${IMMUTABLE_TITLE}" ]; then
             echo "immutable-tag was given without immutable-title" >&2
@@ -119,7 +140,7 @@ runs:
         # tag gives a reader nothing else to go on, and downloading the asset
         # in order to find out what it is rather defeats the purpose.
         notes() {
-            printf 'Upstream version: %s\n\n    %s\n' "${VERSION}" "$(cat "$1")"
+            printf '%s\n\n    %s\n' "${NOTES}" "$(cat "$1")"
         }
 
         # The back-off is deliberately generous, because throwing away a
