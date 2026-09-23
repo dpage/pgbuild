@@ -1,0 +1,253 @@
+name: Publish release
+description: >
+  Publishes a built archive as the rolling <package>-<platform>-<arch>-latest
+  prerelease, with a sha256sum-format checksum beside it and the upstream
+  version and digest in its notes, and, when immutable-tag is given, also as
+  an immutable release of that version which is created once and never
+  touched again. The same bash runs on macOS and on Windows, where it is Git
+  Bash, so that both platforms publish in exactly the same way. Callers keep
+  their own `if: github.ref == 'refs/heads/main'` guard.
+
+inputs:
+  asset:
+    description: >
+      The archive to publish, a .zip or .tar.gz. On Windows it is resolved by
+      PowerShell from the workspace, exactly as the caller's pwsh steps
+      resolve it, so that /name.zip means the root of the workspace's drive:
+      the Windows archives are kept at the root to keep their paths short.
+    required: true
+  tag:
+    description: The rolling tag, e.g. zstd-macos-arm64-latest.
+    required: true
+  title:
+    description: The rolling release's title, e.g. zstd (macOS arm64).
+    required: true
+  version:
+    description: The upstream version, stated in the release notes.
+    required: true
+  immutable-tag:
+    description: >
+      The immutable release's tag, e.g. zstd-1.5.7-macos-arm64. Empty skips
+      the immutable release, for builds that have no single upstream version
+      to pin.
+    required: false
+    default: ''
+  immutable-title:
+    description: The immutable release's title, e.g. zstd 1.5.7 (macOS arm64).
+    required: false
+    default: ''
+  token:
+    description: Token for gh; needs contents write.
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+    # Resolved by PowerShell, in a step of its own, because Git Bash reads a
+    # leading / as its own installation directory, whereas the pwsh steps
+    # that wrote the archive meant the root of the current drive. It cannot
+    # be done from the bash step below, since MSYS rewrites any environment
+    # variable that looks like a POSIX path on its way to a native program,
+    # so pwsh would be handed C:/Program Files/Git/name.zip instead.
+    - name: Resolve archive path
+      id: resolve
+      if: runner.os == 'Windows'
+      shell: pwsh
+      env:
+        ASSET: ${{ inputs.asset }}
+      run: |
+        $path = (Resolve-Path -LiteralPath $Env:ASSET).ProviderPath
+        "path=$path" >> $Env:GITHUB_OUTPUT
+
+    - name: Publish release
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        ASSET: ${{ steps.resolve.outputs.path || inputs.asset }}
+        TAG: ${{ inputs.tag }}
+        TITLE: ${{ inputs.title }}
+        VERSION: ${{ inputs.version }}
+        IMMUTABLE_TAG: ${{ inputs.immutable-tag }}
+        IMMUTABLE_TITLE: ${{ inputs.immutable-title }}
+      run: |
+        set -euo pipefail
+
+        if [ -n "${IMMUTABLE_TAG}" ] && [ -z "${IMMUTABLE_TITLE}" ]; then
+            echo "immutable-tag was given without immutable-title" >&2
+            exit 1
+        fi
+
+        # On Windows the previous step has resolved the path to D:\name.zip.
+        # The mixed form, D:/name.zip, is one that both bash and the native
+        # gh accept unconverted.
+        if [ "${RUNNER_OS}" = "Windows" ]; then
+            ASSET="$(cygpath -m "${ASSET}")"
+        fi
+        if [ ! -f "${ASSET}" ]; then
+            echo "No archive at ${ASSET}" >&2
+            exit 1
+        fi
+
+        case "${ASSET}" in
+            *.tar.gz) EXT=.tar.gz ;;
+            *.zip) EXT=.zip ;;
+            *) echo "Expected a .zip or .tar.gz, not ${ASSET}" >&2; exit 1 ;;
+        esac
+        DIR="$(dirname "${ASSET}")"
+        DIR="${DIR%/}"
+
+        # A checksum beside the archive, in sha256sum's own format, which is
+        # the digest, two spaces and the bare file name, so that whoever has
+        # downloaded the pair can run `shasum -c` over them unedited. The line
+        # is written here rather than taken from the tool, so that it is the
+        # bare name whatever the path, and so that it always ends in an LF
+        # and never has the binary-mode '*' in front of the name.
+        digest() {
+            if command -v sha256sum >/dev/null 2>&1; then
+                sha256sum "$1" | cut -d' ' -f1
+            else
+                shasum -a 256 "$1" | cut -d' ' -f1
+            fi
+        }
+        write_checksum() {
+            printf '%s  %s\n' "$(digest "$1")" "$(basename "$1")" > "$1.sha256"
+        }
+
+        # Stated on the release itself, so that the version built and the
+        # digest published can both be read off the release page: a rolling
+        # tag gives a reader nothing else to go on, and downloading the asset
+        # in order to find out what it is rather defeats the purpose.
+        notes() {
+            printf 'Upstream version: %s\n\n    %s\n' "${VERSION}" "$(cat "$1")"
+        }
+
+        # The back-off is deliberately generous, because throwing away a
+        # build that has already passed its tests, over an API call that may
+        # well work a few minutes later, would be absurd. Creating a release
+        # has repeatedly come back as a bare 403 "Resource not accessible by
+        # integration" under load, for twenty minutes at a stretch.
+        retry() {
+            local what="$1"
+            shift
+            for attempt in 1 2 3 4 5 6 7 8; do
+                if "$@"; then
+                    echo "Published ${what}"
+                    return 0
+                fi
+                delay=$((attempt * 60))
+                if [ "${delay}" -gt 300 ]; then
+                    delay=300
+                fi
+                echo "Publishing ${what} failed on attempt ${attempt};" \
+                     "retrying in ${delay}s"
+                sleep "${delay}"
+            done
+            echo "Giving up on ${what} after 8 attempts" >&2
+            return 1
+        }
+
+        # Refreshing a rolling release means replacing its asset, not tearing
+        # the release down and building a new one. Creating a release is the
+        # expensive operation, and deleting first meant any failure left no
+        # release at all rather than the previous build. The tag is created
+        # once, and from then on each build moves it to the new commit and
+        # clobbers the asset in place, which also keeps the release's URL.
+        write_checksum "${ASSET}"
+        ROLLING_NOTES="$(notes "${ASSET}.sha256")"
+
+        # True only when the release exists and is not a draft, since a draft
+        # has no tag behind it and so cannot be downloaded by tag, however
+        # healthy it looks in the web interface.
+        is_published() {
+            [ "$(gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" \
+                    --json isDraft --jq .isDraft 2>/dev/null)" = "false" ]
+        }
+
+        publish_rolling() {
+            if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" \
+                    >/dev/null 2>&1; then
+                # Move the rolling tag onto the commit that produced these
+                # assets. Allowed to fail: a release left as a draft by an
+                # earlier attempt has no tag yet, and the edit below makes one.
+                gh api -X PATCH \
+                    "repos/${GITHUB_REPOSITORY}/git/refs/tags/${TAG}" \
+                    -f sha="${GITHUB_SHA}" -F force=true >/dev/null 2>&1 \
+                    || true
+                gh release edit "${TAG}" --repo "${GITHUB_REPOSITORY}" \
+                    --title "${TITLE}" --notes "${ROLLING_NOTES}" \
+                    --prerelease --draft=false \
+                    >/dev/null &&
+                gh release upload "${TAG}" "${ASSET}" "${ASSET}.sha256" \
+                    --repo "${GITHUB_REPOSITORY}" --clobber
+            else
+                gh release create "${TAG}" "${ASSET}" "${ASSET}.sha256" \
+                    --repo "${GITHUB_REPOSITORY}" \
+                    --target "${GITHUB_SHA}" \
+                    --title "${TITLE}" \
+                    --notes "${ROLLING_NOTES}" \
+                    --prerelease
+            fi && is_published
+        }
+
+        retry "${TAG}" publish_rolling
+
+        [ -n "${IMMUTABLE_TAG}" ] || exit 0
+
+        # The rolling release says what is newest; this one says what a given
+        # upstream version was. Anything that pins a digest needs the latter,
+        # because the -latest asset is clobbered by the next build. It is
+        # created the first time a version is built and never touched again,
+        # so it costs a release creation when the upstream version changes
+        # rather than on every build.
+        #
+        # Immutable means immutable: a rebuild of a version that has already
+        # been published is precisely the case this exists for, so nothing is
+        # uploaded over it. Should one genuinely need republishing, because
+        # the build changed rather than the upstream release, that is a
+        # deliberate act rather than something to automate.
+        #
+        # A draft is not a published release but the remains of a create that
+        # failed part way, here or on an earlier run, and it would make every
+        # later create fail on the name, so it is removed rather than counted.
+        immutable_state() {
+            gh release view "${IMMUTABLE_TAG}" --repo "${GITHUB_REPOSITORY}" \
+                --json isDraft --jq .isDraft 2>/dev/null || true
+        }
+        if [ "$(immutable_state)" = "false" ]; then
+            echo "${IMMUTABLE_TAG} exists already, so this version has been"
+            echo "published before and is being left exactly as it is. To"
+            echo "republish it, delete that release and its tag by hand, then"
+            echo "run this workflow again."
+            exit 0
+        fi
+
+        # Named after this release's own tag rather than after the rolling
+        # one, so that <tag>/<tag><ext> fetches it the way every other archive
+        # here is fetched, and so that a copy found on a disk a week later
+        # says what it is. The bytes are the rolling release's exactly, so the
+        # digest is the same digest; all that differs is the file name
+        # recorded beside it, which is the name `shasum -c` goes looking for.
+        # It is written beside the original, which on Windows keeps it at the
+        # drive root.
+        COPY="${DIR}/${IMMUTABLE_TAG}${EXT}"
+        cp "${ASSET}" "${COPY}"
+        write_checksum "${COPY}"
+        IMMUTABLE_NOTES="$(notes "${COPY}.sha256")"
+
+        publish_immutable() {
+            if [ "$(immutable_state)" = "true" ]; then
+                gh release delete "${IMMUTABLE_TAG}" \
+                    --repo "${GITHUB_REPOSITORY}" --yes || return 1
+            fi
+            gh release create "${IMMUTABLE_TAG}" "${COPY}" "${COPY}.sha256" \
+                --repo "${GITHUB_REPOSITORY}" \
+                --target "${GITHUB_SHA}" \
+                --title "${IMMUTABLE_TITLE}" \
+                --notes "${IMMUTABLE_NOTES}" \
+                --prerelease
+        }
+
+        # Failing here leaves the rolling release alone, since it has already
+        # published and nothing here touches it.
+        retry "${IMMUTABLE_TAG}" publish_immutable
