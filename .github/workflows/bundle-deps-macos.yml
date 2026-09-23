@@ -195,15 +195,6 @@ jobs:
           tar -czf "${RUNNER_TEMP}/dependencies-macos-${ARCH}-latest.tar.gz" \
               -C "${PGBUILD_PREFIX}" ${PACKAGES}
 
-          # A checksum beside the archive, in sha256sum's own format so that
-          # whoever has downloaded the pair can run `shasum -c` over them
-          # unedited, and written from the archive's own directory so that the
-          # name recorded in it is the bare file name rather than a path off
-          # this runner.
-          cd "${RUNNER_TEMP}"
-          shasum -a 256 "dependencies-macos-${ARCH}-latest.tar.gz" \
-              > "dependencies-macos-${ARCH}-latest.tar.gz.sha256"
-
       - name: Upload Binaries
         uses: actions/upload-artifact@v7
         with:
@@ -211,9 +202,14 @@ jobs:
           name: all-deps-macos-${{ matrix.arch }}
           path: ${{ runner.temp }}/dependencies-macos-${{ matrix.arch }}-latest.tar.gz
 
-      # Refreshing a rolling release means replacing its asset, not tearing the
-      # release down and building a new one; see lz4-macos.yml for the 403s
-      # that made creating a release every night a bad bet.
+      - name: Checkout publish-release action
+        uses: actions/checkout@v6
+        with:
+          path: _src
+          sparse-checkout: |
+            .github/actions/publish-release
+          sparse-checkout-cone-mode: false
+
       - name: Publish Release
         # Only from the default branch. A build on a working branch is a
         # test of the build, and the rolling tags are shared: publishing
@@ -221,14 +217,13 @@ jobs:
         # next scheduled run overwrites that in turn, so whichever ran last
         # decides what everybody downloads.
         if: github.ref == 'refs/heads/main'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: dependencies-macos-${{ matrix.arch }}-latest
-          TITLE: PostgreSQL Dependencies (macOS ${{ matrix.arch }})
-          ASSET: ${{ runner.temp }}/dependencies-macos-${{ matrix.arch }}-latest.tar.gz
-          CHECKSUM: ${{ runner.temp }}/dependencies-macos-${{ matrix.arch }}-latest.tar.gz.sha256
-          VERSION: >-
-            gettext ${{ env.GETTEXT_VERSION }},
+        uses: ./_src/.github/actions/publish-release
+        with:
+          asset: ${{ runner.temp }}/dependencies-macos-${{ matrix.arch }}-latest.tar.gz
+          tag: dependencies-macos-${{ matrix.arch }}-latest
+          title: PostgreSQL Dependencies (macOS ${{ matrix.arch }})
+          notes: >-
+            Upstream versions: gettext ${{ env.GETTEXT_VERSION }},
             icu ${{ env.ICU_VERSION }}, krb5 ${{ env.KRB5_VERSION }},
             libiconv ${{ env.LIBICONV_VERSION }},
             libxml2 ${{ env.LIBXML2_VERSION }},
@@ -237,68 +232,3 @@ jobs:
             openssl ${{ env.OPENSSL_VERSION }},
             ossp-uuid ${{ env.OSSP_UUID_VERSION }},
             zstd ${{ env.ZSTD_VERSION }}
-        run: |
-          set -euo pipefail
-
-          # Stated on the release itself, so that the version built and the
-          # digest published can both be read off the release page: a rolling
-          # tag gives a reader nothing else to go on, and downloading the
-          # asset in order to find out what it is rather defeats the purpose.
-          NOTES="$(printf 'Upstream versions: %s\n\n    %s\n' \
-              "${VERSION}" "$(cat "${CHECKSUM}")")"
-
-          # True only when the release exists and is not a draft, since a draft
-          # has no tag behind it and so cannot be downloaded by tag, however
-          # healthy it looks in the web interface.
-          is_published() {
-              [ "$(gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" \
-                      --json isDraft --jq .isDraft 2>/dev/null)" = "false" ]
-          }
-
-          publish() {
-              if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" \
-                      >/dev/null 2>&1; then
-                  # Move the rolling tag onto the commit that produced these
-                  # assets. Allowed to fail: a release left as a draft by an
-                  # earlier attempt has no tag yet, and the edit below makes
-                  # one.
-                  gh api -X PATCH \
-                      "repos/${GITHUB_REPOSITORY}/git/refs/tags/${TAG}" \
-                      -f sha="${GITHUB_SHA}" -F force=true >/dev/null 2>&1 \
-                      || true
-                  gh release edit "${TAG}" --repo "${GITHUB_REPOSITORY}" \
-                      --title "${TITLE}" --notes "${NOTES}" \
-                      --prerelease --draft=false \
-                      >/dev/null &&
-                  gh release upload "${TAG}" "${ASSET}" "${CHECKSUM}" \
-                      --repo "${GITHUB_REPOSITORY}" --clobber
-              else
-                  gh release create "${TAG}" "${ASSET}" "${CHECKSUM}" \
-                      --repo "${GITHUB_REPOSITORY}" \
-                      --target "${GITHUB_SHA}" \
-                      --title "${TITLE}" \
-                      --notes "${NOTES}" \
-                      --prerelease
-              fi
-          }
-
-          # The back-off is deliberately generous, because throwing away a
-          # build that has already passed, over an API call that may well work
-          # a few minutes later, would be absurd.
-          for attempt in 1 2 3 4 5 6 7 8; do
-              if publish && is_published; then
-                  echo "Published ${TAG}"
-                  exit 0
-              fi
-
-              delay=$((attempt * 60))
-              if [ "${delay}" -gt 300 ]; then
-                  delay=300
-              fi
-              echo "Publishing ${TAG} failed on attempt ${attempt};" \
-                   "retrying in ${delay}s"
-              sleep "${delay}"
-          done
-
-          echo "Giving up on ${TAG} after 8 attempts" >&2
-          exit 1

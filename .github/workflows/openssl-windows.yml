@@ -72,12 +72,13 @@ jobs:
           >> \openssl\lib\pkgconfig\openssl.pc echo Cflags: -I${includedir}
         shell: cmd
 
-      - name: Checkout SPDX action
+      - name: Checkout local actions
         uses: actions/checkout@v6
         with:
           path: _src
           sparse-checkout: |
             .github/actions/generate-spdx
+            .github/actions/publish-release
           sparse-checkout-cone-mode: false
 
       - name: Generate SPDX manifest
@@ -105,121 +106,14 @@ jobs:
         run: |
           Compress-Archive /openssl /openssl-windows-x86_64-latest.zip
           
-      # A checksum beside the archive, in sha256sum's own format, which is the
-      # digest and two spaces and the bare file name, so that whoever has
-      # downloaded the pair can run `shasum -c` over them unedited. It is
-      # written with an explicit LF rather than the CRLF PowerShell would
-      # otherwise leave, because the carriage return would end up as part of
-      # the name shasum then went looking for.
-      - name: Checksum Release Assets
-        id: checksum
-        shell: pwsh
-        run: |
-          $archive = '/openssl-windows-x86_64-latest.zip'
-          $name = Split-Path -Leaf $archive
-          $hash = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLower()
-          Set-Content -Path "$archive.sha256" -Value "$hash  $name`n" -NoNewline
-          Write-Output "sha256=$hash" >> $Env:GITHUB_OUTPUT
-
-      # The tag is moved rather than the release deleted and remade.
-      # Deleting first meant that any failure in the step below, whether
-      # permissions, a rate limit or a network blip, left no release at
-      # all rather than the previous build: that is how
-      # openssl-windows-x86_64-latest came to be absent for four days.
-      # action-gh-release updates an existing release in place, so all
-      # that is needed is for the rolling tag to point at the commit that
-      # produced these assets. Allowed to fail, since the tag will not
-      # exist the first time.
-      - name: Move the rolling tag
-        if: github.ref == 'refs/heads/main'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh api -X PATCH \
-              "repos/${GITHUB_REPOSITORY}/git/refs/tags/openssl-windows-x86_64-latest" \
-              -f sha="${GITHUB_SHA}" -F force=true >/dev/null 2>&1 || true
-
-      - name: Create Release
+      - name: Publish Release
         # Only from the default branch; see the macOS leaves for why.
         if: github.ref == 'refs/heads/main'
-        uses: softprops/action-gh-release@v3
+        uses: ./_src/.github/actions/publish-release
         with:
-          tag_name: "openssl-windows-x86_64-latest"
-          target_commitish: ${{ github.sha }}
-          name: "OpenSSL (Windows x86_64)"
-          prerelease: true
-          body: |
-            Upstream version: ${{ env.OPENSSL_VERSION }}
-
-                ${{ steps.checksum.outputs.sha256 }}  openssl-windows-x86_64-latest.zip
-          files: |
-            /openssl-windows-x86_64-latest.zip
-            /openssl-windows-x86_64-latest.zip.sha256
-
-      # The rolling release above says what is newest; this one says what a
-      # given upstream version was. Anything that pins a digest needs the
-      # latter, because the -latest asset is clobbered by the next build and
-      # the bytes somebody pinned this morning are gone by tomorrow. It is
-      # created the first time a version is built and never touched again, so
-      # it costs a release creation when the upstream version changes rather
-      # than nightly, which is a small fraction of the load the macOS leaves
-      # warn about.
-      - name: Prepare the Immutable Release
-        if: github.ref == 'refs/heads/main'
-        id: immutable
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # An absent release is the ordinary case here rather than an error,
-          # so the pwsh default of turning a non-zero exit from a native
-          # command into a terminating one has to be out of the way.
-          $ErrorActionPreference = 'Continue'
-          $PSNativeCommandUseErrorActionPreference = $false
-
-          $tag = 'openssl-${{ env.OPENSSL_VERSION }}-windows-x86_64'
-          gh release view $tag --repo $Env:GITHUB_REPOSITORY *> $null
-          if ($LASTEXITCODE -eq 0) {
-              # Immutable means immutable: a rebuild of a version that has
-              # already been published is precisely the case this exists for,
-              # so nothing is uploaded over it.
-              Write-Output "$tag exists already, so this version has been"
-              Write-Output "published before and is being left exactly as"
-              Write-Output "it is. To republish it, because the build"
-              Write-Output "changed rather than the upstream release,"
-              Write-Output "delete that release and its tag by hand, then"
-              Write-Output "run this workflow again."
-              Write-Output "publish=false" >> $Env:GITHUB_OUTPUT
-              exit 0
-          }
-
-          # Named after this release's own tag rather than after the rolling
-          # one, so that <tag>/<tag>.zip fetches it the way every other archive
-          # here is fetched, and so that a copy found on a disk a week later
-          # says what it is. The bytes are the rolling release's exactly, so
-          # the digest is the same digest; all that differs is the file name
-          # recorded beside it, which is the name `shasum -c` goes looking for.
-          $copy = "/$tag.zip"
-          Copy-Item -LiteralPath '/openssl-windows-x86_64-latest.zip' -Destination $copy -Force
-          $hash = (Get-FileHash -Algorithm SHA256 $copy).Hash.ToLower()
-          Set-Content -Path "$copy.sha256" -Value "$hash  $tag.zip`n" -NoNewline
-          Write-Output "sha256=$hash" >> $Env:GITHUB_OUTPUT
-          Write-Output "publish=true" >> $Env:GITHUB_OUTPUT
-          exit 0
-
-      - name: Create Immutable Release
-        if: github.ref == 'refs/heads/main' && steps.immutable.outputs.publish == 'true'
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: "openssl-${{ env.OPENSSL_VERSION }}-windows-x86_64"
-          target_commitish: ${{ github.sha }}
-          name: "OpenSSL ${{ env.OPENSSL_VERSION }} (Windows x86_64)"
-          prerelease: true
-          body: |
-            Upstream version: ${{ env.OPENSSL_VERSION }}
-
-                ${{ steps.immutable.outputs.sha256 }}  openssl-${{ env.OPENSSL_VERSION }}-windows-x86_64.zip
-          files: |
-            /openssl-${{ env.OPENSSL_VERSION }}-windows-x86_64.zip
-            /openssl-${{ env.OPENSSL_VERSION }}-windows-x86_64.zip.sha256
+          asset: /openssl-windows-x86_64-latest.zip
+          tag: openssl-windows-x86_64-latest
+          title: OpenSSL (Windows x86_64)
+          version: ${{ env.OPENSSL_VERSION }}
+          immutable-tag: openssl-${{ env.OPENSSL_VERSION }}-windows-x86_64
+          immutable-title: OpenSSL ${{ env.OPENSSL_VERSION }} (Windows x86_64)

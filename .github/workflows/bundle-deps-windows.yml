@@ -166,51 +166,23 @@ jobs:
         run: |
           Compress-Archive /builddeps /postgresql-dependencies-windows-x86_64-latest.zip
           
-      # A checksum beside the archive, in sha256sum's own format, which is the
-      # digest and two spaces and the bare file name, so that whoever has
-      # downloaded the pair can run `shasum -c` over them unedited. It is
-      # written with an explicit LF rather than the CRLF PowerShell would
-      # otherwise leave, because the carriage return would end up as part of
-      # the name shasum then went looking for.
-      - name: Checksum Release Assets
-        id: checksum
-        shell: pwsh
-        run: |
-          $archive = '/postgresql-dependencies-windows-x86_64-latest.zip'
-          $name = Split-Path -Leaf $archive
-          $hash = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLower()
-          Set-Content -Path "$archive.sha256" -Value "$hash  $name`n" -NoNewline
-          Write-Output "sha256=$hash" >> $Env:GITHUB_OUTPUT
+      - name: Checkout publish-release action
+        uses: actions/checkout@v6
+        with:
+          path: _src
+          sparse-checkout: |
+            .github/actions/publish-release
+          sparse-checkout-cone-mode: false
 
-      # The tag is moved rather than the release deleted and remade.
-      # Deleting first meant that any failure in the step below, whether
-      # permissions, a rate limit or a network blip, left no release at
-      # all rather than the previous build: that is how
-      # openssl-windows-x86_64-latest came to be absent for four days.
-      # action-gh-release updates an existing release in place, so all
-      # that is needed is for the rolling tag to point at the commit that
-      # produced these assets. Allowed to fail, since the tag will not
-      # exist the first time.
-      - name: Move the rolling tag
-        if: github.ref == 'refs/heads/main'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh api -X PATCH \
-              "repos/${GITHUB_REPOSITORY}/git/refs/tags/dependencies-windows-x86_64-latest" \
-              -f sha="${GITHUB_SHA}" -F force=true >/dev/null 2>&1 || true
-
-      - name: Create Release
+      - name: Publish Release
         # Only from the default branch; see the macOS leaves for why.
         if: github.ref == 'refs/heads/main'
-        uses: softprops/action-gh-release@v3
+        uses: ./_src/.github/actions/publish-release
         with:
-          tag_name: "dependencies-windows-x86_64-latest"
-          target_commitish: ${{ github.sha }}
-          name: "PostgreSQL Dependencies (Windows x86_64)"
-          prerelease: true
-          body: |
+          asset: /postgresql-dependencies-windows-x86_64-latest.zip
+          tag: dependencies-windows-x86_64-latest
+          title: "PostgreSQL Dependencies (Windows x86_64)"
+          notes: |
             Upstream versions: diffutils ${{ env.DIFFUTILS_VERSION }},
             gettext ${{ env.GETTEXT_VERSION }},
             icu ${{ env.ICU_VERSION }}, krb5 ${{ env.KRB5_VERSION }},
@@ -224,8 +196,3 @@ jobs:
             pkgconf ${{ env.PKGCONF_VERSION }},
             winflexbison ${{ env.WINFLEXBISON_VERSION }},
             zlib ${{ env.ZLIB_VERSION }}, zstd ${{ env.ZSTD_VERSION }}
-
-                ${{ steps.checksum.outputs.sha256 }}  postgresql-dependencies-windows-x86_64-latest.zip
-          files: |
-            /postgresql-dependencies-windows-x86_64-latest.zip
-            /postgresql-dependencies-windows-x86_64-latest.zip.sha256
